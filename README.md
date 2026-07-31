@@ -2,6 +2,8 @@
 
 ProofCheck is an AI-assisted alcohol label pre-screening prototype. It extracts evidence from complete label artwork, compares that evidence with application facts, applies a versioned catalog of beverage-specific rules, and routes uncertainty to a human reviewer.
 
+**[Open the public prototype](https://treasury-label-verifier-dusky.vercel.app)** · **[View the source repository](https://github.com/ilan0/treasury-label-verifier)**
+
 The product is designed as a standalone demonstration for the Alcohol and Tobacco Tax and Trade Bureau (TTB) workflow. It never claims that a label is “TTB approved.” Outcomes are intentionally limited to **pre-check passed**, **human review required**, and **correction needed**.
 
 ## User quick start
@@ -13,6 +15,17 @@ No account, application data, or artwork is needed:
 3. Select **Run 250-item batch** to exercise the durable batch pipeline without making 250 unnecessary model calls.
 
 Custom manual applications, application-document extraction, private artwork uploads, and CSV batches of up to 300 applications are also supported.
+
+![ProofCheck user dashboard](public/screenshots/dashboard.png)
+
+<details>
+<summary>View the evidence review and 250-item batch screens</summary>
+
+![Evidence review with submitted artwork and comparison](public/screenshots/result.png)
+
+![Completed 250-item durable benchmark](public/screenshots/batch.png)
+
+</details>
 
 ## Why the architecture is split this way
 
@@ -147,6 +160,7 @@ The normal end-to-end suite exercises desktop, mobile, tablet, and wide-desktop 
 
 ```bash
 PROOFCHECK_LIVE_E2E=1 npm run test:e2e
+PROOFCHECK_REVIEW_E2E=1 npm run test:e2e
 PROOFCHECK_BATCH_E2E=1 npm run test:e2e
 ```
 

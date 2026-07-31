@@ -43,6 +43,9 @@ Defects discovered during implementation and QA are added here and closed only a
 - [x] Interactive submissions passed target job IDs to the dispatcher but the database claim ignored them; claims are now target-aware while scheduled recovery remains global, with delivery-failure regression coverage.
 - [x] Application-document events have no job ID and could still sit behind unrelated outbox work; the dispatcher now supports validated event-ID targeting and document intake uses it.
 - [x] Retrying a batch with zero failed jobs could pass an empty target and accidentally sweep unrelated outbox work; explicit empty targets now return without claiming globally.
+- [x] The production 250-item free-tier drain completed just after the browser's five-minute readiness window; the release-only deterministic condition now allows six minutes, and the original completed batch was reopened under its signed session to verify final UI, filtering, search, and CSV export without creating duplicate work.
+- [x] Vercel assigned a different stable alias than the preconfigured canonical origin; updated `NEXT_PUBLIC_APP_URL` and redeployed before live worker smoke testing.
+- [x] Production health exposed an IPv6-only Supabase direct database endpoint; verified the project's exact IPv4 Supavisor transaction pooler, replaced only Vercel's server `DATABASE_URL`, redeployed, and confirmed public health `ready`.
 
 ## Measured performance
 

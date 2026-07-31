@@ -10,7 +10,7 @@ Runtime: Node.js 20, Next.js 16.2.12
 
 | Gate                                    | Result                                                                                      |
 | --------------------------------------- | ------------------------------------------------------------------------------------------- |
-| Locked dependency install               | Verified during foundation setup; fresh-clone release check follows the final commit        |
+| Locked dependency install               | Pass from a clean temporary clone; 679 packages installed, audit 0 vulnerabilities          |
 | Formatting, ESLint, TypeScript          | Pass                                                                                        |
 | Clean migration, repeat migration, seed | Pass                                                                                        |
 | Database/private Storage check          | Pass                                                                                        |
@@ -18,13 +18,15 @@ Runtime: Node.js 20, Next.js 16.2.12
 | Coverage                                | 96.76% statements, 90.93% branches, 98.78% functions, 97.16% lines                          |
 | Compliance/matching coverage            | 98.88% / 98.94% statements; 95.13% / 97.46% branches                                        |
 | Real database integration               | 6 scenarios passed                                                                          |
-| Production-like Playwright              | 25 passed, 15 intentionally release-only/project-specific skipped                           |
+| Production-like Playwright              | 25 passed; release-only and single-project cases intentionally skipped elsewhere            |
 | axe-core browser suite                  | 12 passed; zero serious/critical findings                                                   |
 | Production build                        | Pass; all expected application and API routes emitted                                       |
 | Production-like start/health            | Pass; `/api/health` returned `ready` with database, OpenAI, Inngest, and Storage configured |
 | Production dependency audit             | 0 vulnerabilities                                                                           |
 | Full dependency audit                   | 0 vulnerabilities                                                                           |
-| Secret scan                             | Pass across 137 source files, 30 client bundle files, and Git history                       |
+| Secret scan                             | Pass across 136 source files, 30 client bundle files, and Git history                       |
+
+`npm ci` emitted deprecation notices from the latest published `drizzle-kit` loader and Inngest/telemetry transitive packages (`serialize-error-cjs`, `node-domexception`). Their dependency paths and current upstream versions were inspected; neither has a newer compatible parent release at verification time, both audits remain at zero vulnerabilities, and application runtime behavior is covered above.
 
 Commands executed:
 
@@ -59,6 +61,7 @@ npm run check:secrets
 - Launched the cached-extraction 250-item benchmark through the real durable queue. It completed 250 unique jobs in 1 minute 47 seconds: 125 pre-check passed, 41 human review, and 84 correction needed, with no missing/duplicate jobs.
 - Observed partial batch progress after reload; filtered, searched, sorted, opened an item, and exported results.
 - Created a browser-backed draft, confirmed a second anonymous session received `Batch unavailable`, then verified cancel/delete choices and the explicit irreversible deletion confirmation.
+- Selected a human override on a live low-quality case, triggered the required-rationale validation, recorded a valid rationale, reloaded the nested review URL, and confirmed the immutable decision/note remained in history.
 - Monitored page errors, error-level console messages, HTTP 5xx responses, visible status, and persisted backend state throughout the browser suite. No unexplained issue remained.
 
 Viewports exercised with the real UI:
@@ -75,8 +78,8 @@ Keyboard focus/submit behavior, responsive overflow, long form content, duplicat
 - **OpenAI:** real structured image extraction and real application-document extraction succeeded with `store: false`; malformed output/refusal, timeout, 4xx, delivery failure, and retry behavior have mocked regression coverage.
 - **Supabase Postgres:** migrations, constraints, transaction rollback, atomic quota race handling, cross-session authorization, immutable decisions, cancellation/retry, status history, outbox targeting, and cleanup behavior were exercised.
 - **Supabase Storage:** the bucket is private; signed upload, object verification, signed read, and cleanup behavior succeeded.
-- **Inngest:** local function registration, one-event-per-job fan-out, cached benchmark stress, live worker execution, replay checkpoints, target-aware delivery, and scheduled outbox/expiry functions were exercised.
-- **Vercel:** production deployment and public-browser evidence are recorded in the release section after final deployment.
+- **Inngest:** local function registration, one-event-per-job fan-out, cached benchmark stress, live worker execution, replay checkpoints, target-aware delivery, and scheduled outbox/expiry functions were exercised. The production `proofcheck` app synced successfully in Inngest Cloud with the stable Vercel endpoint and all verification, document, recovery, cleanup, and generated failure handlers.
+- **Vercel:** the public deployment reports healthy database/OpenAI/Inngest/Storage readiness, current build identity, expected security headers, and successful static asset/download delivery.
 
 ## Performance evidence
 
@@ -101,9 +104,23 @@ The configured hosted database and model therefore do not consistently satisfy t
 - Interactive outbox targets accepted by the dispatcher but ignored by its database claim.
 - Application extraction events sitting behind unrelated job work because they lack job IDs.
 - Empty retry targets potentially turning into an unrelated global outbox sweep.
+- A Vercel canonical origin configured before the platform assigned its stable alias.
+- Vercel database health failing because the Supabase direct endpoint is IPv6-only; production now uses the verified IPv4 Supavisor transaction pooler.
+- The release-only cloud batch readiness window ending seconds before a healthy free-tier drain; the deterministic window now reflects measured cloud concurrency.
 
 Every substantive defect above has focused regression coverage or an integration/browser reproduction recorded in `PLAN.md`.
 
 ## Release result
 
-The local production-like release is healthy and all application quality gates above pass. Public Vercel URL, public Inngest execution, clean-session smoke results, fresh-clone setup evidence, and the final release commit are appended during deployment so this report never claims unverified production behavior.
+Public prototype: [https://treasury-label-verifier-dusky.vercel.app](https://treasury-label-verifier-dusky.vercel.app)
+
+Source repository: [https://github.com/ilan0/treasury-label-verifier](https://github.com/ilan0/treasury-label-verifier)
+
+- Production `/api/health` returned HTTP 200 `ready`; database, OpenAI, Inngest, and private Storage checks were all true, with build identity `48f85607ee84` before the documentation/screenshot release commit.
+- A clean-session public live example reached its evidence-backed pre-check result in 23.6 seconds through Inngest Cloud and real OpenAI.
+- The public application-document/private-artwork workflow passed in 31.9 seconds.
+- The public live human-review/immutable-history workflow passed in 20.0 seconds.
+- The production benchmark created exactly 250 unique jobs and reached 250 terminal outcomes in 302 seconds under the free five-concurrency pool: 125 passed, 41 human review, and 84 correction. The completed batch was reopened under its signed owner session; final progress, outcome cards, filtering, search, and CSV export all passed with no console/page/5xx failure.
+- The README setup was executed from a clean temporary clone: `npm ci`, migration, seed, private-bucket/database check, formatting, lint, types, all 119 normal tests, and a production build passed.
+
+The only remaining material limitation is the explicitly measured external-provider performance above; no unresolved critical/high correctness, security, accessibility, or release issue remains.

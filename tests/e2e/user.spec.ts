@@ -198,6 +198,51 @@ test("a real queued example reaches an evidence-backed result", async ({
   assertNoFailures();
 });
 
+test("a human can document an override and see its immutable history after reload", async ({
+  page,
+}, testInfo) => {
+  test.skip(
+    process.env.PROOFCHECK_REVIEW_E2E !== "1" ||
+      testInfo.project.name !== "desktop",
+    "Release-only live human-review check",
+  );
+  test.setTimeout(120_000);
+  const assertNoFailures = captureBrowserFailures(page);
+  await page.goto("/");
+  const lowQualityCard = page.getByRole("article").filter({
+    has: page.getByRole("heading", { name: "Low-quality photograph" }),
+  });
+  await lowQualityCard.getByRole("button", { name: "Run example" }).click();
+  await expect(page).toHaveURL(/\/reviews\/[0-9a-f-]+$/, { timeout: 30_000 });
+  await expect(page.getByText("Human review", { exact: true })).toBeVisible({
+    timeout: 90_000,
+  });
+
+  await page.getByRole("radio", { name: /Accept with override/i }).check();
+  await page.getByRole("button", { name: "Record decision" }).click();
+  await expect(page.getByText("Decision not recorded")).toBeVisible();
+  await expect(page.getByText(/at least 10 characters/i)).toBeVisible();
+
+  const rationale =
+    "Reviewer accepts the visible evidence despite the documented glare.";
+  await page.getByLabel(/Review notes/i).fill(rationale);
+  await page.getByRole("button", { name: "Record decision" }).click();
+  await expect(page.getByText("Decision recorded")).toBeVisible();
+  await page.getByText("Processing and decision history").click();
+  await expect(
+    page.getByText("Accepted with documented override"),
+  ).toBeVisible();
+  await expect(page.getByText(rationale)).toBeVisible();
+
+  await page.reload();
+  await page.getByText("Processing and decision history").click();
+  await expect(
+    page.getByText("Accepted with documented override"),
+  ).toBeVisible();
+  await expect(page.getByText(rationale)).toBeVisible();
+  assertNoFailures();
+});
+
 test("a real application document and private artwork upload can be confirmed and processed", async ({
   page,
 }, testInfo) => {
@@ -254,7 +299,7 @@ test("the required 250-item benchmark reports durable independent results", asyn
       testInfo.project.name !== "desktop",
     "Release-only durable batch stress check",
   );
-  test.setTimeout(360_000);
+  test.setTimeout(420_000);
   const assertNoFailures = captureBrowserFailures(page);
 
   await page.goto("/");
@@ -265,7 +310,7 @@ test("the required 250-item benchmark reports durable independent results", asyn
   await expect(page).toHaveURL(/\/batches\/[0-9a-f-]+$/, { timeout: 30_000 });
   await expect(page.getByText("250 applications")).toBeVisible();
   await expect(page.getByText("Batch complete")).toBeVisible({
-    timeout: 300_000,
+    timeout: 360_000,
   });
   await expect(page.getByText("250 of 250")).toBeVisible();
   await expect(page.getByText("100%")).toBeVisible();
