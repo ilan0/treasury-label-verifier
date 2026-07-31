@@ -116,7 +116,8 @@ Public prototype: [https://treasury-label-verifier-dusky.vercel.app](https://tre
 
 Source repository: [https://github.com/ilan0/treasury-label-verifier](https://github.com/ilan0/treasury-label-verifier)
 
-- Production `/api/health` returned HTTP 200 `ready`; database, OpenAI, Inngest, and private Storage checks were all true, with build identity `48f85607ee84` before the documentation/screenshot release commit.
+- Production `/api/health` returned HTTP 200 `ready`; database, OpenAI, Inngest, and private Storage checks were all true. The documentation/screenshot release returned build identity `52e87c2dafda`.
+- A final clean public-browser regression ran 44 scenarios across the four release viewports: 25 passed and 19 live-cost/project-specific scenarios were intentionally gated. The dedicated public axe run passed 12/12 with zero serious or critical findings.
 - A clean-session public live example reached its evidence-backed pre-check result in 23.6 seconds through Inngest Cloud and real OpenAI.
 - The public application-document/private-artwork workflow passed in 31.9 seconds.
 - The public live human-review/immutable-history workflow passed in 20.0 seconds.

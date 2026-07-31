@@ -14,7 +14,7 @@ This file is the living execution record for the approved implementation plan.
 - [x] 8. Required 200–300-item batch workflow
 - [x] 9. Security, abuse controls, resilience, accessibility, and performance
 - [x] 10. Automated and real-browser QA loop
-- [ ] 11. Documentation, deployment, and public release verification
+- [x] 11. Documentation, deployment, and public release verification
 
 ## Release gates
 
@@ -22,10 +22,10 @@ This file is the living execution record for the approved implementation plan.
 - [x] Clean migration, repeat migration, seed, and database check
 - [x] Unit, integration, database, accessibility, and end-to-end tests
 - [x] Production build and production-like startup
-- [ ] Real OpenAI, Supabase, Inngest, and public Vercel smoke checks
+- [x] Real OpenAI, Supabase, Inngest, and public Vercel smoke checks
 - [x] Desktop, tablet, mobile, keyboard, console, and network browser review
 - [x] Dependency audit and tracked/build-output secret scan
-- [ ] README fresh-clone verification and final TEST_REPORT.md
+- [x] README fresh-clone verification and final TEST_REPORT.md
 
 ## Defect log
 
