@@ -1,0 +1,10 @@
+application_id,label_filename,panel_type,regulatory_profile,brand_name,class_type,abv,net_contents,responsible_name,responsible_address,imported,country_of_origin,responsible_role,proof,alcohol_content_required,appellation_required,appellation,foreign_wine_percentage_required,foreign_wine_percentage,age_statement_required,age_statement,state_of_distillation_required,state_of_distillation,composition_statement_required,composition_statement,contains_sulfites,contains_yellow_5,contains_carmine_or_cochineal,contains_aspartame,contains_neutral_spirits,neutral_spirits_commodity,neutral_spirits_percentage,wood_treatment_or_coloring_disclosure_required
+APP-001,old-tom-front.jpg,front,faa_distilled_spirits,OLD TOM DISTILLERY,Kentucky Straight Bourbon Whiskey,45%,750 mL,Old Tom Distilling Company,"Bardstown, Kentucky",false,
+APP-001,old-tom-back.jpg,back,faa_distilled_spirits,OLD TOM DISTILLERY,Kentucky Straight Bourbon Whiskey,45%,750 mL,Old Tom Distilling Company,"Bardstown, Kentucky",false,
+APP-002,bellweather-front.png,front,faa_wine,Bellweather Cellars,Red Wine,13.5%,750 mL,Bellweather Cellars,"Napa, California",false,
+APP-002,bellweather-back.png,back,faa_wine,Bellweather Cellars,Red Wine,13.5%,750 mL,Bellweather Cellars,"Napa, California",false,
+APP-003,maison-rivage-front.webp,front,faa_wine,Maison Rivage,Red Wine,13%,750 mL,Atlantic Selections LLC,"New York, New York",true,France
+APP-003,maison-rivage-back.webp,back,faa_wine,Maison Rivage,Red Wine,13%,750 mL,Atlantic Selections LLC,"New York, New York",true,France
+APP-004,harbor-light-can.jpg,container_marking,faa_malt_beverage,HARBOR LIGHT,Lager,4.8%,12 fl. oz.,Harbor Brewing Company,"Portland, Maine",false,
+APP-005,stones-throw-front.jpg,front,faa_distilled_spirits,Stone's Throw,Kentucky Straight Bourbon Whiskey,45%,750 mL,Old Tom Distilling Company,"Bardstown, Kentucky",false,
+APP-005,stones-throw-back.jpg,back,faa_distilled_spirits,Stone's Throw,Kentucky Straight Bourbon Whiskey,45%,750 mL,Old Tom Distilling Company,"Bardstown, Kentucky",false,

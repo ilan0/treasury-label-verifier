@@ -2,14 +2,27 @@
   "name": "treasury-label-verifier",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "scripts": {
     "dev": "next dev",
+    "dev:inngest": "inngest-cli dev -u http://localhost:3000/api/inngest",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
-    "test:coverage": "vitest run --coverage",
+    "test": "vitest run --exclude tests/integration/**",
+    "test:coverage": "vitest run --coverage --exclude tests/integration/**",
+    "test:db": "vitest run src/db && npm run db:check",
+    "test:integration": "vitest run tests/integration",
+    "test:e2e": "playwright test",
+    "test:a11y": "playwright test --grep @a11y",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "node scripts/db-migrate.mjs",
+    "db:seed": "node scripts/db-seed.mjs",
+    "db:check": "node scripts/db-check.mjs",
+    "demo:render": "node scripts/render-demo-artwork.mjs",
+    "benchmark:demo": "node scripts/benchmark-demo.mjs",
+    "check:secrets": "node scripts/check-secrets.mjs",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },
@@ -22,9 +35,14 @@
     "postgres": "^3.4.9",
     "react": "19.2.4",
     "react-dom": "19.2.4",
+    "server-only": "^0.0.1",
+    "sharp": "^0.35.3",
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.12.1",
+    "@next/env": "16.2.12",
+    "@playwright/test": "^1.62.1",
     "@tailwindcss/postcss": "^4",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
@@ -35,6 +53,7 @@
     "drizzle-kit": "^0.31.10",
     "eslint": "^9",
     "eslint-config-next": "16.2.12",
+    "inngest-cli": "^1.40.0",
     "jsdom": "^29.1.1",
     "prettier": "^3.9.6",
     "prettier-plugin-tailwindcss": "^0.8.1",
@@ -43,7 +62,13 @@
     "vitest": "^4.1.10"
   },
   "overrides": {
+    "adm-zip": "^0.6.0",
+    "brace-expansion": "^5.0.9",
+    "esbuild": "^0.28.0",
+    "gaxios": "^7.3.0",
+    "glob": "^13.0.6",
+    "minimatch": "^10.2.6",
     "postcss": "^8.5.18",
-    "sharp": "^0.35.0"
+    "sharp": "$sharp"
   }
 }
