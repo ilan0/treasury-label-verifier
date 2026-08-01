@@ -284,7 +284,12 @@ test("a real application document and private artwork upload can be confirmed an
   await expect(page).toHaveURL(/\/reviews\/[0-9a-f-]+$/, { timeout: 25_000 });
   await expect(page.getByText("Human review")).toBeVisible({ timeout: 75_000 });
   await expect(page.getByText("Warning minimum type size")).toBeVisible();
-  await expect(page.getByText("Not assessed", { exact: true })).toBeVisible();
+  const warningSizeFinding = page.locator("article.finding-card").filter({
+    hasText: "Warning minimum type size",
+  });
+  await expect(
+    warningSizeFinding.getByText("Not assessed", { exact: true }),
+  ).toBeVisible();
   await expect(
     page.getByRole("region", { name: "Label artwork" }),
   ).toBeVisible();

@@ -18,7 +18,7 @@ Runtime: Node.js 20, Next.js 16.2.12
 | Coverage                                | 96.76% statements, 90.93% branches, 98.78% functions, 97.16% lines                          |
 | Compliance/matching coverage            | 98.88% / 98.94% statements; 95.13% / 97.46% branches                                        |
 | Real database integration               | 6 scenarios passed                                                                          |
-| Public Playwright regression             | 26 passed, 22 release-only/single-project cases intentionally skipped across four viewports |
+| Public Playwright regression            | 26 passed, 22 release-only/single-project cases intentionally skipped across four viewports |
 | axe-core browser suite                  | 12 passed; zero serious/critical findings                                                   |
 | Production build                        | Pass; all expected application and API routes emitted                                       |
 | Production-like start/health            | Pass; `/api/health` returned `ready` with database, OpenAI, Inngest, and Storage configured |
@@ -123,12 +123,12 @@ Public prototype: [https://treasury-label-verifier-dusky.vercel.app](https://tre
 
 Source repository: [https://github.com/ilan0/treasury-label-verifier](https://github.com/ilan0/treasury-label-verifier)
 
-- Production `/api/health` returned HTTP 200 `ready`; database, OpenAI, Inngest, and private Storage checks were all true. The documentation/screenshot release returned build identity `52e87c2dafda`.
-- A final clean public-browser regression ran 44 scenarios across the four release viewports: 25 passed and 19 live-cost/project-specific scenarios were intentionally gated. The dedicated public axe run passed 12/12 with zero serious or critical findings.
-- A clean-session public live example reached its evidence-backed pre-check result in 23.6 seconds through Inngest Cloud and real OpenAI.
-- The public application-document/private-artwork workflow passed in 31.9 seconds.
+- Production `/api/health` returned HTTP 200 `ready`; database, OpenAI, Inngest, and private Storage checks were all true. The endpoint exposed the current Git release identity and all expected security headers.
+- A final clean public-browser regression ran 48 scenarios across the four release viewports: 26 passed and 22 live-cost/single-project scenarios were intentionally gated. The dedicated public axe run passed 12/12 with zero serious or critical findings.
+- Twenty clean-session public live scans using unseen image variants measured 4.428 seconds median and 7.124 seconds p95 through Inngest Cloud and real OpenAI.
+- The final public application-document/private-artwork workflow passed in 12.4 seconds using real GPT-5.4 mini extraction and conservative human review.
 - The public live human-review/immutable-history workflow passed in 20.0 seconds.
-- The production benchmark created exactly 250 unique jobs and reached 250 terminal outcomes in 302 seconds under the free five-concurrency pool: 125 passed, 41 human review, and 84 correction. The completed batch was reopened under its signed owner session; final progress, outcome cards, filtering, search, and CSV export all passed with no console/page/5xx failure.
-- The README setup was executed from a clean temporary clone: `npm ci`, migration, seed, private-bucket/database check, formatting, lint, types, all 119 normal tests, and a production build passed.
+- The final production benchmark created exactly 250 unique jobs and reached 250 terminal outcomes in 3.3 minutes under the free five-concurrency pool: 125 passed, 41 human review, and 84 correction. An interactive queued result completed in 2.0 seconds during that load. Final progress, outcome cards, filtering, search, and CSV export passed with no console/page/5xx failure.
+- The README setup was executed from a clean temporary clone: `npm ci`, migration, seed, private-bucket/database check, formatting, lint, types, all 239 normal tests, and a production build passed.
 
-The only remaining material limitation is the explicitly measured external-provider performance above; no unresolved critical/high correctness, security, accessibility, or release issue remains.
+The only remaining performance limitation is the explicitly measured Inngest queue sub-budget above; no unresolved critical/high correctness, security, accessibility, or release issue remains.
