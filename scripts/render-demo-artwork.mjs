@@ -1,4 +1,4 @@
-import { readdir } from "node:fs/promises";
+import { mkdir, readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 
 import sharp from "sharp";
@@ -15,4 +15,31 @@ for (const file of files) {
     .toFile(path.join(demoDirectory, file.replace(/\.svg$/, ".png")));
 }
 
-console.log(`Rendered ${files.length} user demo labels.`);
+const performanceDirectory = path.join(demoDirectory, "performance");
+await mkdir(performanceDirectory, { recursive: true });
+const benchmarkSource = await readFile(
+  path.join(demoDirectory, "old-tom-bourbon.png"),
+);
+for (let variant = 1; variant <= 20; variant += 1) {
+  const marker = Buffer.from([16 + variant, 32 + variant, 48 + variant, 255]);
+  await sharp(benchmarkSource)
+    .composite([
+      {
+        input: marker,
+        raw: { width: 1, height: 1, channels: 4 },
+        left: variant,
+        top: 0,
+      },
+    ])
+    .jpeg({ quality: 88, mozjpeg: false })
+    .toFile(
+      path.join(
+        performanceDirectory,
+        `old-tom-${String(variant).padStart(2, "0")}.jpg`,
+      ),
+    );
+}
+
+console.log(
+  `Rendered ${files.length} user demo labels and 20 unique benchmark rasters.`,
+);

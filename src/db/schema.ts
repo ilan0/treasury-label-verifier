@@ -103,6 +103,7 @@ export const labelPanelEnum = pgEnum("label_panel", [
 export const extractionSourceEnum = pgEnum("extraction_source", [
   "openai",
   "cached_demo",
+  "cached_extraction",
 ]);
 
 export const ruleStatusEnum = pgEnum("rule_status", [
@@ -129,6 +130,12 @@ export const outboxStatusEnum = pgEnum("outbox_status", [
   "pending",
   "sending",
   "sent",
+  "failed",
+]);
+
+export const processingAttemptStatusEnum = pgEnum("processing_attempt_status", [
+  "running",
+  "completed",
   "failed",
 ]);
 
@@ -245,6 +252,95 @@ export const labelJobs = pgTable(
   ],
 );
 
+export type ProcessingTimingSpans = {
+  extractionMs?: number;
+  persistenceMs?: number;
+  preprocessingMs?: number;
+  queueMs?: number;
+  totalMs?: number;
+  validationMs?: number;
+  verificationMs?: number;
+};
+
+export const processingAttempts = pgTable(
+  "processing_attempts",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    jobId: uuid("job_id")
+      .notNull()
+      .references(() => labelJobs.id, { onDelete: "cascade" }),
+    attemptNumber: integer("attempt_number").notNull(),
+    idempotencyKey: text("idempotency_key").notNull(),
+    inngestRunId: text("inngest_run_id"),
+    status: processingAttemptStatusEnum("status").default("running").notNull(),
+    replayCount: integer("replay_count").default(0).notNull(),
+    lastReplayedAt: timestamp("last_replayed_at", { withTimezone: true }),
+    model: text("model"),
+    serviceTier: text("service_tier"),
+    modelVariant: text("model_variant"),
+    promptVersion: text("prompt_version"),
+    timingSpans: jsonb("timing_spans")
+      .$type<ProcessingTimingSpans>()
+      .default({})
+      .notNull(),
+    totalLatencyMs: integer("total_latency_ms"),
+    inputTokens: integer("input_tokens").default(0).notNull(),
+    cachedInputTokens: integer("cached_input_tokens").default(0).notNull(),
+    outputTokens: integer("output_tokens").default(0).notNull(),
+    reasoningTokens: integer("reasoning_tokens").default(0).notNull(),
+    totalTokens: integer("total_tokens").default(0).notNull(),
+    errorCode: text("error_code"),
+    metadata: jsonb("metadata").$type<JsonObject>().default({}).notNull(),
+    startedAt: timestamp("started_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+    ...timestamps,
+  },
+  (table) => [
+    uniqueIndex("processing_attempts_idempotency_uidx").on(
+      table.idempotencyKey,
+    ),
+    uniqueIndex("processing_attempts_job_number_uidx").on(
+      table.jobId,
+      table.attemptNumber,
+    ),
+    index("processing_attempts_job_started_idx").on(
+      table.jobId,
+      table.startedAt,
+    ),
+    index("processing_attempts_model_tier_idx").on(
+      table.model,
+      table.serviceTier,
+      table.modelVariant,
+    ),
+    check(
+      "processing_attempts_attempt_number_check",
+      sql`${table.attemptNumber} > 0`,
+    ),
+    check(
+      "processing_attempts_replay_count_check",
+      sql`${table.replayCount} >= 0`,
+    ),
+    check(
+      "processing_attempts_latency_check",
+      sql`${table.totalLatencyMs} is null or ${table.totalLatencyMs} >= 0`,
+    ),
+    check(
+      "processing_attempts_token_counts_check",
+      sql`${table.inputTokens} >= 0 and ${table.cachedInputTokens} >= 0 and ${table.outputTokens} >= 0 and ${table.reasoningTokens} >= 0 and ${table.totalTokens} >= 0 and ${table.cachedInputTokens} <= ${table.inputTokens} and ${table.reasoningTokens} <= ${table.outputTokens} and ${table.totalTokens} >= ${table.inputTokens} + ${table.outputTokens}`,
+    ),
+    check(
+      "processing_attempts_terminal_state_check",
+      sql`(${table.status} = 'running' and ${table.finishedAt} is null) or (${table.status} in ('completed', 'failed') and ${table.finishedAt} is not null)`,
+    ),
+    check(
+      "processing_attempts_failure_code_check",
+      sql`${table.status} <> 'failed' or length(trim(coalesce(${table.errorCode}, ''))) > 0`,
+    ),
+  ],
+);
+
 export const artifacts = pgTable(
   "artifacts",
   {
@@ -340,6 +436,41 @@ export const extractions = pgTable(
       sql`${table.confidence} is null or ${table.confidence} between 0 and 1`,
     ),
     check("extractions_latency_check", sql`${table.latencyMs} >= 0`),
+  ],
+);
+
+export const extractionCache = pgTable(
+  "extraction_cache",
+  {
+    cacheKey: text("cache_key").primaryKey(),
+    scopeId: text("scope_id").notNull(),
+    fields: jsonb("fields").$type<JsonObject>().notNull(),
+    rawText: text("raw_text"),
+    imageQuality: real("image_quality"),
+    confidence: real("confidence"),
+    model: text("model").notNull(),
+    promptVersion: text("prompt_version").notNull(),
+    strategyVersion: text("strategy_version").notNull(),
+    serviceTier: text("service_tier").notNull(),
+    usage: jsonb("usage").$type<JsonObject>().default({}).notNull(),
+    latencyMs: integer("latency_ms").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true })
+      .default(sql`now() + interval '7 days'`)
+      .notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("extraction_cache_scope_expires_idx").on(
+      table.scopeId,
+      table.expiresAt,
+    ),
+    check(
+      "extraction_cache_confidence_check",
+      sql`${table.confidence} is null or ${table.confidence} between 0 and 1`,
+    ),
+    check("extraction_cache_latency_check", sql`${table.latencyMs} >= 0`),
   ],
 );
 
@@ -505,3 +636,5 @@ export type RuleResultRecord = typeof ruleResults.$inferSelect;
 export type ReviewDecisionRecord = typeof reviewDecisions.$inferSelect;
 export type StatusEventRecord = typeof statusEvents.$inferSelect;
 export type QueueOutboxRecord = typeof queueOutbox.$inferSelect;
+export type ProcessingAttempt = typeof processingAttempts.$inferSelect;
+export type NewProcessingAttempt = typeof processingAttempts.$inferInsert;

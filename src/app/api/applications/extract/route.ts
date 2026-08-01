@@ -56,12 +56,11 @@ export async function POST(request: Request) {
         payload: { applicationId: body.applicationId },
       })
       .onConflictDoNothing({ target: queueOutbox.eventId });
-    after(() =>
-      dispatchPendingOutbox({
-        eventIds: [`application-extraction-${body.applicationId}`],
-        limit: 1,
-      }),
-    );
+    const queueDelivery = dispatchPendingOutbox({
+      eventIds: [`application-extraction-${body.applicationId}`],
+      limit: 1,
+    });
+    after(() => queueDelivery);
     const queue = { delivered: 0, pending: 1 };
     return acceptedResponse({
       applicationId: body.applicationId,

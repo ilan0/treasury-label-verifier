@@ -15,13 +15,12 @@ function providerStatus(reason: unknown): number | undefined {
     : undefined;
 }
 
-export const verifyLabel = inngest.createFunction(
+export const verifyInteractiveLabel = inngest.createFunction(
   {
-    id: "verify-alcohol-label",
-    name: "Verify alcohol label",
-    concurrency: 5,
+    id: "verify-interactive-alcohol-label",
+    name: "Verify interactive alcohol label",
     retries: 3,
-    triggers: { event: "label/verification.requested" },
+    triggers: { event: "label/verification.interactive" },
     onFailure: async ({ event }) => {
       const jobId = (event.data.event.data as { jobId?: string }).jobId;
       if (jobId) await markJobFailed(jobId, event.data.error);
@@ -42,6 +41,57 @@ export const verifyLabel = inngest.createFunction(
       }
       throw reason;
     }
+  },
+);
+
+export const verifyBulkLabel = inngest.createFunction(
+  {
+    id: "verify-bulk-alcohol-label",
+    name: "Verify bulk alcohol label",
+    concurrency: 4,
+    retries: 3,
+    triggers: { event: "label/verification.bulk" },
+    onFailure: async ({ event }) => {
+      const jobId = (event.data.event.data as { jobId?: string }).jobId;
+      if (jobId) await markJobFailed(jobId, event.data.error);
+    },
+  },
+  async ({ event, step }) => {
+    const jobId = (event.data as { jobId?: string }).jobId;
+    if (!jobId) throw new NonRetriableError("JOB_ID_REQUIRED");
+    try {
+      return await step.run("process-label-job", () => processLabelJob(jobId));
+    } catch (reason) {
+      const status = providerStatus(reason);
+      if (status && [400, 401, 403, 404].includes(status)) {
+        await markJobFailed(jobId, reason);
+        throw new NonRetriableError("PERMANENT_PROVIDER_FAILURE", {
+          cause: reason,
+        });
+      }
+      throw reason;
+    }
+  },
+);
+
+// Keep accepting the pre-optimization event name so an outbox row written by
+// an in-flight older deployment cannot become stranded during rollout.
+export const verifyLegacyLabel = inngest.createFunction(
+  {
+    id: "verify-legacy-alcohol-label",
+    name: "Verify legacy alcohol label",
+    concurrency: 1,
+    retries: 3,
+    triggers: { event: "label/verification.requested" },
+    onFailure: async ({ event }) => {
+      const jobId = (event.data.event.data as { jobId?: string }).jobId;
+      if (jobId) await markJobFailed(jobId, event.data.error);
+    },
+  },
+  async ({ event, step }) => {
+    const jobId = (event.data as { jobId?: string }).jobId;
+    if (!jobId) throw new NonRetriableError("JOB_ID_REQUIRED");
+    return step.run("process-label-job", () => processLabelJob(jobId));
   },
 );
 
@@ -103,7 +153,9 @@ export const cleanupExpiredData = inngest.createFunction(
 );
 
 export const inngestFunctions = [
-  verifyLabel,
+  verifyInteractiveLabel,
+  verifyBulkLabel,
+  verifyLegacyLabel,
   extractApplication,
   recoverOutbox,
   cleanupExpiredData,

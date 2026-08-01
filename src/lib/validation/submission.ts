@@ -121,6 +121,7 @@ export const completeUploadsSchema = z.object({
 export const demoRequestSchema = z.object({
   scenario: z.string().optional(),
   scenarioId: z.string().optional(),
+  performanceVariant: z.number().int().min(1).max(20).optional(),
 });
 
 export const reviewRequestSchema = z.object({

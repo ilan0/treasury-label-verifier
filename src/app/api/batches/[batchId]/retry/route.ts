@@ -19,7 +19,8 @@ export async function POST(
       batchId,
       session.recordId,
     );
-    after(() => dispatchPendingOutbox({ jobIds, limit: 300 }));
+    const queueDelivery = dispatchPendingOutbox({ jobIds, limit: 300 });
+    after(() => queueDelivery);
     const queue = { delivered: 0, pending: jobIds.length };
     return acceptedResponse({ batchId, jobIds, queue, retried: jobIds.length });
   } catch (reason) {

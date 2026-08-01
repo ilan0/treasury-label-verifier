@@ -82,7 +82,9 @@ export async function GET(
         storagePath: submitted.artworkPath,
         mimeType: submitted.artworkPath.endsWith(".png")
           ? "image/png"
-          : "image/svg+xml",
+          : submitted.artworkPath.endsWith(".jpg")
+            ? "image/jpeg"
+            : "image/svg+xml",
         sizeBytes: 1,
         sha256: "demo",
         width: null,
@@ -120,6 +122,14 @@ export async function GET(
         ? {
             ...result.extraction,
             fields: flatObserved(result.extraction.fields),
+            strategy: result.latestAttempt?.modelVariant,
+            provenance: {
+              cached: result.extraction.source === "cached_extraction",
+              live: result.extraction.source === "openai",
+              source: result.extraction.source,
+              strategy: result.latestAttempt?.modelVariant,
+            },
+            timing: result.latestAttempt?.timingSpans,
           }
         : null,
       findings,

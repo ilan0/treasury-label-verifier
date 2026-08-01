@@ -15,6 +15,7 @@ This file is the living execution record for the approved implementation plan.
 - [x] 9. Security, abuse controls, resilience, accessibility, and performance
 - [x] 10. Automated and real-browser QA loop
 - [x] 11. Documentation, deployment, and public release verification
+- [x] 12. Five-second latency program, accuracy regression, and production rollout
 
 ## Release gates
 
@@ -26,6 +27,7 @@ This file is the living execution record for the approved implementation plan.
 - [x] Desktop, tablet, mobile, keyboard, console, and network browser review
 - [x] Dependency audit and tracked/build-output secret scan
 - [x] README fresh-clone verification and final TEST_REPORT.md
+- [x] Twenty-variant unseen-image and ten-run exact-repeat performance gates
 
 ## Defect log
 
@@ -46,11 +48,17 @@ Defects discovered during implementation and QA are added here and closed only a
 - [x] The production 250-item free-tier drain completed just after the browser's five-minute readiness window; the release-only deterministic condition now allows six minutes, and the original completed batch was reopened under its signed session to verify final UI, filtering, search, and CSV export without creating duplicate work.
 - [x] Vercel assigned a different stable alias than the preconfigured canonical origin; updated `NEXT_PUBLIC_APP_URL` and redeployed before live worker smoke testing.
 - [x] Production health exposed an IPv6-only Supabase direct database endpoint; verified the project's exact IPv4 Supavisor transaction pooler, replaced only Vercel's server `DATABASE_URL`, redeployed, and confirmed public health `ready`.
+- [x] A universal compact array schema was fast but semantically unsafe: smaller models emitted duplicate or incorrect field keys. Replaced it with a fixed, profile-aware object schema and golden conversion tests.
+- [x] Numeric-only compact ABV evidence caused statement-format false failures. Compact numeric evidence now preserves exact source wording for deterministic format checks.
+- [x] Compact extraction could not prove subjective warning presentation from an unscaled custom photograph. Those facts are deliberately omitted and route to review; only verified built-in artwork receives trusted physical/presentation metadata.
+- [x] Interactive `concurrency: 1` serialized a new run behind Inngest's post-terminal durable-step finalization, producing alternating multi-second cache results. Removed only interactive serialization while retaining bulk concurrency four; repeat p95 is now 984 ms.
+- [x] Direct post-commit event delivery without first claiming the outbox was tested as a queue optimization and regressed repeat p95 to 2,649 ms. Removed the losing experiment and retained the proven targeted transactional outbox path.
 
 ## Measured performance
 
-- Ten warm, live compliant-bourbon runs all reached persisted `completed` status.
-- Queue/API acknowledgement median: 2,721 ms; p95: 3,562 ms against hosted Supabase from the local test environment.
-- End-to-end completion median: 13,778 ms; p95: 19,823 ms.
-- Recorded model-call latency ranged from 4,627–12,008 ms with an approximately 6.1 second median for those runs.
-- The external-service combination therefore does not consistently meet the aspirational five-second total. The UI remains non-blocking, exposes durable progress immediately, and survives reload/deploy/retry; the limitation will be stated in the release report rather than obscured.
+- Twenty unique, unseen live compliant-bourbon rasters all reached persisted `completed` status.
+- Warm submission acknowledgement median: 150 ms; p95: 314 ms. Documented post-deployment cold acknowledgements were 740 and 942 ms.
+- Submission-to-persisted terminal median: 3,976 ms; click-to-visible median: 4,428 ms and p95: 7,124 ms.
+- Provider median: 2,808 ms. Non-provider worker median: 101 ms and p95: 220 ms.
+- Ten warmed exact repeats returned with disclosed cache provenance in 953 ms median and 984 ms p95.
+- The primary five-second median and eight-second p95 pass. The remaining externally imposed sub-budget limitation is the free Inngest HTTP control plane: warmed repeat queue median 523 ms and p95 640 ms rather than the aspirational 300 ms. Full spans and rejected experiments are in `PERFORMANCE_REPORT.md`.

@@ -4,8 +4,10 @@ const mocks = vi.hoisted(() => ({ parse: vi.fn() }));
 
 vi.mock("./client", () => ({
   APPLICATION_PROMPT_VERSION: "application-test",
+  EXTRACTION_STRATEGY_VERSION: "compact-test",
   LABEL_PROMPT_VERSION: "label-test",
   OPENAI_MODEL: "test-model",
+  configuredServiceTier: () => "default",
   getOpenAIClient: () => ({ responses: { parse: mocks.parse } }),
 }));
 
@@ -115,6 +117,73 @@ describe("OpenAI structured extraction", () => {
         model: "test-model",
         reasoning: { effort: "none" },
         store: false,
+      }),
+    );
+  });
+
+  it("uses the compact profile-aware wire contract on the worker fast path", async () => {
+    mocks.parse.mockResolvedValue({
+      model: "fast-model",
+      output_parsed: {
+        bn: { v: "PROOFCHECK", c: 0.99, p: "front" },
+        ct: { v: "Bourbon Whiskey", c: 0.99, p: "front" },
+        av: { v: 45, c: 0.99, p: "front", r: "45% Alc./Vol." },
+        nc: { v: { a: 750, u: "mL" }, c: 0.99, p: "front", r: "750 mL" },
+        rn: { v: "ProofCheck Distilling", c: 0.99, p: "front" },
+        ra: { v: "Louisville, KY", c: 0.99, p: "front" },
+        rr: { v: "Distilled by", c: 0.99, p: "front" },
+        w: {
+          t: "GOVERNMENT WARNING: (1) TEST. (2) TEST.",
+          c: 0.99,
+          p: "front",
+          uc: true,
+          bd: true,
+          ct: true,
+          sp: true,
+          lg: true,
+          bg: true,
+          mm: null,
+          ml: null,
+        },
+        sf: true,
+        q: 0.99,
+        iq: "good",
+      },
+      service_tier: "default",
+      usage: { output_tokens: 220 },
+    });
+
+    const result = await extractLabelArtwork(
+      [{ dataUrl: "data:image/jpeg;base64,aW1hZ2U=", panel: "front" }],
+      {
+        application: {
+          profile: "faa_distilled_spirits",
+          beverageFamily: "distilled_spirits",
+          brandName: "PROOFCHECK",
+          classType: "Bourbon Whiskey",
+          alcoholByVolume: 45,
+          netContents: { value: 750, unit: "mL" },
+          responsibleParty: {
+            name: "ProofCheck Distilling",
+            address: "Louisville, KY",
+            role: "Distilled by",
+          },
+        },
+        strategy: "compact",
+      },
+    );
+
+    expect(result.observation.netContents?.value).toEqual({
+      value: 750,
+      unit: "mL",
+    });
+    expect(result.strategyVersion).toBe("compact-test");
+    expect(result.serviceTier).toBe("default");
+    expect(mocks.parse.mock.calls[0][0]).toEqual(
+      expect.objectContaining({
+        max_output_tokens: 1_500,
+        service_tier: "default",
+        text: expect.objectContaining({ verbosity: "low" }),
       }),
     );
   });

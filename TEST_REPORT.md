@@ -1,6 +1,6 @@
 # ProofCheck verification report
 
-Verification date: July 31, 2026
+Verification date: August 1, 2026
 
 Ruleset: `2026-07-31.1`
 
@@ -14,17 +14,17 @@ Runtime: Node.js 20, Next.js 16.2.12
 | Formatting, ESLint, TypeScript          | Pass                                                                                        |
 | Clean migration, repeat migration, seed | Pass                                                                                        |
 | Database/private Storage check          | Pass                                                                                        |
-| Unit/component/business suite           | 18 files, 119 tests passed                                                                  |
+| Unit/component/business suite           | 24 files, 239 tests passed; one live paid-provider bake-off file skipped by default         |
 | Coverage                                | 96.76% statements, 90.93% branches, 98.78% functions, 97.16% lines                          |
 | Compliance/matching coverage            | 98.88% / 98.94% statements; 95.13% / 97.46% branches                                        |
 | Real database integration               | 6 scenarios passed                                                                          |
-| Production-like Playwright              | 25 passed; release-only and single-project cases intentionally skipped elsewhere            |
+| Public Playwright regression             | 26 passed, 22 release-only/single-project cases intentionally skipped across four viewports |
 | axe-core browser suite                  | 12 passed; zero serious/critical findings                                                   |
 | Production build                        | Pass; all expected application and API routes emitted                                       |
 | Production-like start/health            | Pass; `/api/health` returned `ready` with database, OpenAI, Inngest, and Storage configured |
 | Production dependency audit             | 0 vulnerabilities                                                                           |
 | Full dependency audit                   | 0 vulnerabilities                                                                           |
-| Secret scan                             | Pass across 136 source files, 30 client bundle files, and Git history                       |
+| Secret scan                             | Pass across 175 source files, 30 client bundle files, and Git history                       |
 
 `npm ci` emitted deprecation notices from the latest published `drizzle-kit` loader and Inngest/telemetry transitive packages (`serialize-error-cjs`, `node-domexception`). Their dependency paths and current upstream versions were inspected; neither has a newer compatible parent release at verification time, both audits remain at zero vulnerabilities, and application runtime behavior is covered above.
 
@@ -83,13 +83,16 @@ Keyboard focus/submit behavior, responsive overflow, long form content, duplicat
 
 ## Performance evidence
 
-`npm run benchmark:demo` performed ten warm sequential live-model runs. All ten reached persisted `completed` status.
+The optimized public workflow performed twenty sequential live-model scans using unique normalized image variants. All twenty reached persisted `completed` status without prompt-cache input reads.
 
-- API/queue acknowledgement median: 2,721 ms; p95: 3,562 ms
-- Browser-observed total completion median: 13,778 ms; p95: 19,823 ms
-- Persisted model-call latency range: 4,627–12,008 ms; approximately 6.1-second median
+- Warm API acknowledgement median: 150 ms; p95: 314 ms
+- Submission-to-persisted terminal median: 3,976 ms
+- Browser-observed completion median: **4,428 ms**; p95: **7,124 ms**
+- OpenAI provider median: 2,808 ms
+- Non-provider worker median: 101 ms; p95: 220 ms
+- Ten warmed exact repeats: 953 ms median; 984 ms p95 with visible cache provenance
 
-The configured hosted database and model therefore do not consistently satisfy the stakeholder’s aspirational five-second total from this test network. This is the remaining external-performance limitation. ProofCheck does not freeze the request or browser while work runs: it persists first, displays the queued/validating/extracting/verifying progression, retries recoverable failures idempotently, and restores the correct state after reload. A production procurement should benchmark co-located infrastructure and a representative label corpus before setting an SLA.
+The primary five-second median and eight-second p95 gates pass. The free Inngest HTTP queue remains above its aspirational 300 ms sub-budget (523 ms median and 640 ms p95 on warmed repeat work), but it does not prevent the user-facing KPI from passing. Detailed spans, finalists, rejected experiments, cold/fallback separation, and the remaining external floor are in `PERFORMANCE_REPORT.md`.
 
 ## Defects discovered and fixed
 
@@ -107,6 +110,10 @@ The configured hosted database and model therefore do not consistently satisfy t
 - A Vercel canonical origin configured before the platform assigned its stable alias.
 - Vercel database health failing because the Supabase direct endpoint is IPv6-only; production now uses the verified IPv4 Supavisor transaction pooler.
 - The release-only cloud batch readiness window ending seconds before a healthy free-tier drain; the deterministic window now reflects measured cloud concurrency.
+- A compact array provider schema emitting duplicate or semantically incorrect field keys; replaced by a profile-aware fixed object schema.
+- Compact numeric evidence dropping exact ABV source wording and causing deterministic format false failures.
+- Interactive queue serialization behind Inngest durable-step finalization; removed while bulk remains capped at four.
+- A direct-send queue experiment that worsened p95; removed rather than left as dormant complexity.
 
 Every substantive defect above has focused regression coverage or an integration/browser reproduction recorded in `PLAN.md`.
 

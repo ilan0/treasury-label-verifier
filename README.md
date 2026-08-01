@@ -52,7 +52,7 @@ Browser
 - Next.js 16 App Router, React 19, TypeScript, and Tailwind CSS 4
 - Supabase Postgres and private Storage, Drizzle ORM and SQL migrations
 - Inngest durable functions with transactional outbox recovery
-- OpenAI Responses API with GPT-5.6 Luna and Zod structured output
+- OpenAI Responses API with a compact GPT-5.4 mini fast path, GPT-5.6 Luna fallback, and Zod structured output
 - Vitest, Testing Library, Playwright, and axe-core
 - Vercel deployment and GitHub Actions CI
 
@@ -92,17 +92,19 @@ cp .env.example .env.local
 
 Populate `.env.local` with your own values. Generate the two application-only secrets with, for example, `openssl rand -base64 32`.
 
-| Variable                                    | Exposure and purpose                                            |
-| ------------------------------------------- | --------------------------------------------------------------- |
-| `NEXT_PUBLIC_APP_URL`                       | Public canonical origin; `http://localhost:3000` locally        |
-| `OPENAI_API_KEY`, `OPENAI_MODEL`            | Server-only extraction credentials and model                    |
-| `NEXT_PUBLIC_SUPABASE_URL`                  | Public Supabase project URL                                     |
-| `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`      | Public browser-safe project key                                 |
-| `SUPABASE_SECRET_KEY`                       | Server-only Storage/database administration key                 |
-| `SUPABASE_PROJECT_REF`, `DATABASE_URL`      | Server-only migration and Postgres connection values            |
-| `INNGEST_SIGNING_KEY`, `INNGEST_EVENT_KEY`  | Server-only deployed worker authentication                      |
-| `SESSION_SIGNING_SECRET`, `RATE_LIMIT_SALT` | Server-only random application secrets                          |
-| Retention/quota variables                   | Optional limits documented with safe defaults in `.env.example` |
+| Variable                                               | Exposure and purpose                                            |
+| ------------------------------------------------------ | --------------------------------------------------------------- |
+| `NEXT_PUBLIC_APP_URL`                                  | Public canonical origin; `http://localhost:3000` locally        |
+| `OPENAI_API_KEY`, `OPENAI_MODEL`                       | Server-only extraction credentials and model                    |
+| `OPENAI_FALLBACK_MODEL`, `OPENAI_SERVICE_TIER`         | Optional thorough fallback and provider tier                    |
+| `OPENAI_EXTRACTION_STRATEGY`, `OPENAI_IMAGE_TRANSPORT` | Versioned cache and built-in image transport controls           |
+| `NEXT_PUBLIC_SUPABASE_URL`                             | Public Supabase project URL                                     |
+| `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`                 | Public browser-safe project key                                 |
+| `SUPABASE_SECRET_KEY`                                  | Server-only Storage/database administration key                 |
+| `SUPABASE_PROJECT_REF`, `DATABASE_URL`                 | Server-only migration and Postgres connection values            |
+| `INNGEST_SIGNING_KEY`, `INNGEST_EVENT_KEY`             | Server-only deployed worker authentication                      |
+| `SESSION_SIGNING_SECRET`, `RATE_LIMIT_SALT`            | Server-only random application secrets                          |
+| Retention/quota variables                              | Optional limits documented with safe defaults in `.env.example` |
 
 Never prefix a server credential with `NEXT_PUBLIC_`. GitHub and Vercel access tokens are deployment credentials, not application environment variables.
 
@@ -166,6 +168,20 @@ PROOFCHECK_BATCH_E2E=1 npm run test:e2e
 
 Run release checks only with the Next.js app and Inngest dev server active, or against a configured production base URL. Exact final results and tested workflows are recorded in `TEST_REPORT.md`; implementation decisions and resolved defects remain in `PLAN.md`.
 
+## Measured production latency
+
+The optimized path remains a live asynchronous scan—it does not substitute simulated progress or cached data for first-scan measurements. Twenty previously unseen normalized label rasters measured:
+
+- **4.428-second** click-to-visible median and **7.124-second** p95
+- **3.976-second** submission-to-persisted-terminal median
+- **2.808-second** OpenAI median
+- **101 ms** non-provider worker median
+- **150 ms** warm submission acknowledgement median
+
+After one warm-up, ten exact repeats with visible cache provenance measured **953 ms median and 984 ms p95**. Versioned cache reuse skips only model extraction; deterministic rules execute again.
+
+The remaining sub-budget floor is Inngest's free HTTP control plane, which measured 523 ms median and 640 ms p95 on warmed repeat work rather than the aspirational 300 ms. Accuracy, durable queueing, retries, and conservative human-review routing were retained. See `PERFORMANCE_REPORT.md` for full spans, model/schema experiments, rejected avenues, accuracy checks, and reproduction commands.
+
 ## Security and reliability notes
 
 - Zod validates all route and provider input; uploaded bytes are verified and normalized before model use.
@@ -179,4 +195,4 @@ Run release checks only with the Next.js app and Inngest dev server active, or a
 
 This is intentionally one maintainable Next.js deployment rather than a microservice demonstration. Polling is visibility-aware and authoritative; production identity integration or Supabase Realtime could be introduced when an agency authentication model exists. A production procurement would also require formal legal validation of the rules catalog, FedRAMP-authorized service selection, accessibility certification, agency retention/audit integration, calibrated extraction evaluation on representative labels, and a firewall-compatible deployment topology.
 
-See `TEST_REPORT.md` for release evidence and `PLAN.md` for the living implementation record.
+See `TEST_REPORT.md` for release evidence, `PERFORMANCE_REPORT.md` for the latency program, and `PLAN.md` for the living implementation record.

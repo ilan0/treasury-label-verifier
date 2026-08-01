@@ -38,6 +38,16 @@ describe("exact government health warning", () => {
     GOVERNMENT_HEALTH_WARNING.replace("Surgeon General,", "Surgeon General"),
     GOVERNMENT_HEALTH_WARNING.replace("may cause", "can cause"),
     `${GOVERNMENT_HEALTH_WARNING} Drink responsibly.`,
+    GOVERNMENT_HEALTH_WARNING.replace("WARNING:", "WARNING"),
+    GOVERNMENT_HEALTH_WARNING.replace("(1)", "1."),
+    GOVERNMENT_HEALTH_WARNING.replace("(2)", "2."),
+    GOVERNMENT_HEALTH_WARNING.replace("birth defects", "harm"),
+    GOVERNMENT_HEALTH_WARNING.replace("should not drink", "must not drink"),
+    GOVERNMENT_HEALTH_WARNING.replace("impairs", "can impair"),
+    GOVERNMENT_HEALTH_WARNING.replace("drive a car", "operate a vehicle"),
+    GOVERNMENT_HEALTH_WARNING.replace("health problems", "health risks"),
+    GOVERNMENT_HEALTH_WARNING.replace("alcoholic beverages", "alcohol"),
+    GOVERNMENT_HEALTH_WARNING.slice(0, -1),
   ])("rejects a statutory text mutation", (mutated) => {
     expect(hasExactGovernmentWarning(mutated)).toBe(false);
   });

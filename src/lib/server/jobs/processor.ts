@@ -1,12 +1,13 @@
 import "server-only";
 
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, gt, sql } from "drizzle-orm";
 
 import { getDatabase } from "@/db/client";
 import {
   applications,
   artifacts,
   batches,
+  extractionCache,
   extractions,
   labelJobs,
   ruleResults,
@@ -24,21 +25,30 @@ import { RULESET_VERSION } from "@/lib/domain";
 import { volumeInMilliliters } from "@/lib/matching";
 import { InvalidRecordStateError } from "@/lib/server/dal";
 import {
+  beginJobExtraction,
+  findLatestProcessingAttempt,
+  finishProcessingAttempt,
   persistJobEvaluation,
+  recordProcessingAttemptReplay,
   reconcileBatchStatus,
+  startProcessingAttempt,
   transitionJobStatus,
 } from "@/lib/server/dal";
 import {
   extractLabelArtwork,
   type ArtworkInput,
 } from "@/lib/server/openai/extract";
+import { needsThoroughVisionFallback } from "@/lib/server/openai/fallback";
 import {
   APPLICATION_PROMPT_VERSION,
+  configuredServiceTier,
+  EXTRACTION_STRATEGY_VERSION,
   LABEL_PROMPT_VERSION,
   OPENAI_MODEL,
 } from "@/lib/server/openai/client";
 import { asDataUrl, normalizeArtwork } from "@/lib/server/preprocess/image";
 import { downloadArtifact } from "@/lib/server/storage";
+import { createExtractionCacheKey } from "@/lib/server/jobs/extraction-cache-key";
 
 const terminalStatuses = new Set([
   "completed",
@@ -66,18 +76,17 @@ async function jobContext(jobId: string) {
     .where(eq(labelJobs.id, jobId))
     .limit(1);
   if (!record) throw new Error("JOB_NOT_FOUND");
-  const artwork = await db
-    .select()
-    .from(artifacts)
-    .where(
-      and(eq(artifacts.jobId, jobId), eq(artifacts.purpose, "label_artwork")),
-    )
-    .orderBy(asc(artifacts.createdAt));
-  const [extraction] = await db
-    .select()
-    .from(extractions)
-    .where(eq(extractions.jobId, jobId))
-    .limit(1);
+  const [artwork, extractionRows] = await Promise.all([
+    db
+      .select()
+      .from(artifacts)
+      .where(
+        and(eq(artifacts.jobId, jobId), eq(artifacts.purpose, "label_artwork")),
+      )
+      .orderBy(asc(artifacts.createdAt)),
+    db.select().from(extractions).where(eq(extractions.jobId, jobId)).limit(1),
+  ]);
+  const [extraction] = extractionRows;
   return { ...record, artwork, extraction: extraction ?? null };
 }
 
@@ -94,14 +103,58 @@ function submittedData(fields: JsonObject) {
   return { application, artworkPath, demoObservation, warningTypeSizeMm };
 }
 
+function combinedProviderUsage(first: unknown, second: unknown): JsonObject {
+  const usage = (value: unknown) =>
+    (value && typeof value === "object" ? value : {}) as {
+      input_tokens?: number;
+      input_tokens_details?: { cached_tokens?: number };
+      output_tokens?: number;
+      output_tokens_details?: { reasoning_tokens?: number };
+      total_tokens?: number;
+    };
+  const a = usage(first);
+  const b = usage(second);
+  const sum = (left = 0, right = 0) => left + right;
+  return {
+    fallback_used: true,
+    input_tokens: sum(a.input_tokens, b.input_tokens),
+    input_tokens_details: {
+      cached_tokens: sum(
+        a.input_tokens_details?.cached_tokens,
+        b.input_tokens_details?.cached_tokens,
+      ),
+    },
+    output_tokens: sum(a.output_tokens, b.output_tokens),
+    output_tokens_details: {
+      reasoning_tokens: sum(
+        a.output_tokens_details?.reasoning_tokens,
+        b.output_tokens_details?.reasoning_tokens,
+      ),
+    },
+    total_tokens: sum(a.total_tokens, b.total_tokens),
+  };
+}
+
 async function buildStaticDemoArtwork(path: string): Promise<ArtworkInput> {
-  if (!/^\/demo\/[a-z0-9-]+\.png$/.test(path))
+  if (
+    !/^\/demo\/[a-z0-9-]+\.png$/.test(path) &&
+    !/^\/demo\/performance\/old-tom-(?:0[1-9]|1\d|20)\.jpg$/.test(path)
+  )
     throw new Error("INVALID_DEMO_ARTWORK");
   const configuredBase = process.env.NEXT_PUBLIC_APP_URL?.trim();
   const vercelHost = process.env.VERCEL_URL?.trim();
   const base =
     configuredBase ||
     (vercelHost ? `https://${vercelHost}` : "http://127.0.0.1:3000");
+  if (process.env.OPENAI_IMAGE_TRANSPORT?.trim() === "url") {
+    return {
+      dataUrl: new URL(path, base).toString(),
+      detail: "high",
+      filename: path.split("/").at(-1),
+      mimeType: path.endsWith(".jpg") ? "image/jpeg" : "image/png",
+      panel: "front",
+    };
+  }
   const response = await fetch(new URL(path, base), {
     cache: "no-store",
     signal: AbortSignal.timeout(10_000),
@@ -279,7 +332,8 @@ async function persistAssessment(input: {
   observation: LabelObservation;
   promptVersion: string;
   rawText?: string;
-  source: "openai" | "cached_demo";
+  source: "openai" | "cached_demo" | "cached_extraction";
+  totalLatencyMs: number;
   usage?: JsonObject;
 }) {
   return persistJobEvaluation({
@@ -302,7 +356,7 @@ async function persistAssessment(input: {
     },
     job: {
       confidence: input.assessment.overallConfidence,
-      latencyMs: input.latencyMs,
+      latencyMs: input.totalLatencyMs,
       model: input.model,
       outcome: input.assessment.outcome,
       promptVersion: input.promptVersion,
@@ -323,7 +377,8 @@ async function persistAssessment(input: {
 }
 
 export async function processLabelJob(jobId: string) {
-  let context = await jobContext(jobId);
+  const workerStartedAt = Date.now();
+  const context = await jobContext(jobId);
   if (terminalStatuses.has(context.job.status))
     return { status: context.job.status, replay: true };
 
@@ -354,18 +409,24 @@ export async function processLabelJob(jobId: string) {
     });
   }
 
-  if (context.job.status === "queued") {
-    await transitionJobStatus({
-      jobId,
-      expectedStatuses: ["queued"],
-      nextStatus: "validating",
-      patch: {
-        attemptCount: context.job.attemptCount + 1,
-        startedAt: context.job.startedAt ?? new Date(),
-      },
-    });
-    context = await jobContext(jobId);
+  const attemptNumber = Math.max(
+    1,
+    context.job.attemptCount + (context.job.status === "queued" ? 1 : 0),
+  );
+  const attemptKey = `label-job:${jobId}:${attemptNumber}`;
+  const attempt = await startProcessingAttempt({
+    attemptNumber,
+    idempotencyKey: attemptKey,
+    jobId,
+    model: OPENAI_MODEL,
+    modelVariant: EXTRACTION_STRATEGY_VERSION,
+    promptVersion: LABEL_PROMPT_VERSION,
+    serviceTier: configuredServiceTier(),
+  });
+  if (!attempt.created) {
+    await recordProcessingAttemptReplay(attemptKey).catch(() => undefined);
   }
+  const contextReadyAt = Date.now();
 
   const { application, artworkPath, demoObservation, warningTypeSizeMm } =
     submittedData(context.application.submittedFields);
@@ -384,11 +445,11 @@ export async function processLabelJob(jobId: string) {
     return { status: "rejected" };
   }
 
-  if (context.job.status === "validating") {
+  if (context.job.status === "queued" || context.job.status === "validating") {
     if (!demoObservation && !artworkPath && context.artwork.length === 0) {
       await transitionJobStatus({
         jobId,
-        expectedStatuses: ["validating"],
+        expectedStatuses: [context.job.status],
         nextStatus: "rejected",
         patch: {
           completedAt: new Date(),
@@ -399,21 +460,26 @@ export async function processLabelJob(jobId: string) {
       await reconcileBatchStatus(context.job.batchId);
       return { status: "rejected" };
     }
-    await transitionJobStatus({
-      jobId,
-      expectedStatuses: ["validating"],
-      nextStatus: "extracting",
-    });
-    context = await jobContext(jobId);
+    const begun = await beginJobExtraction(jobId);
+    context.job.status = begun.status;
   }
 
   let observation: LabelObservation;
   let rawText: string | undefined;
   let model = OPENAI_MODEL;
   let promptVersion = LABEL_PROMPT_VERSION;
-  let source: "openai" | "cached_demo" = "openai";
+  let source: "openai" | "cached_demo" | "cached_extraction" = "openai";
   let latencyMs = 0;
   let usage: JsonObject = {};
+  let serviceTier: string = configuredServiceTier();
+  let strategyVersion = EXTRACTION_STRATEGY_VERSION;
+  let preprocessingMs = 0;
+  let cacheWrite:
+    | {
+        cacheKey: string;
+        scopeId: string;
+      }
+    | undefined;
 
   if (context.extraction) {
     observation = context.extraction.fields as unknown as LabelObservation;
@@ -429,17 +495,86 @@ export async function processLabelJob(jobId: string) {
     promptVersion = "demo-fixture.2026-07-31.1";
     source = "cached_demo";
   } else {
-    const artworkInputs = context.artwork.length
-      ? await buildArtworkInputs(context.artwork)
-      : [await buildStaticDemoArtwork(artworkPath!)];
-    const extracted = await extractLabelArtwork(artworkInputs);
-    observation = extracted.observation;
+    const scopeId = artworkPath ? "built-in-demo" : context.batch.sessionId;
+    const cacheKey = createExtractionCacheKey({
+      application,
+      artwork: context.artwork,
+      artworkPath,
+      model: OPENAI_MODEL,
+      promptVersion: LABEL_PROMPT_VERSION,
+      scopeId,
+      strategyVersion: EXTRACTION_STRATEGY_VERSION,
+    });
+    const [cached] = await getDatabase()
+      .select()
+      .from(extractionCache)
+      .where(
+        and(
+          eq(extractionCache.cacheKey, cacheKey),
+          eq(extractionCache.scopeId, scopeId),
+          gt(extractionCache.expiresAt, new Date()),
+        ),
+      )
+      .limit(1);
+    if (cached) {
+      observation = cached.fields as unknown as LabelObservation;
+      rawText = cached.rawText ?? undefined;
+      model = cached.model;
+      promptVersion = cached.promptVersion;
+      source = "cached_extraction";
+      latencyMs = 0;
+      usage = { cache_hit: true };
+      serviceTier = cached.serviceTier;
+      strategyVersion = cached.strategyVersion;
+    } else {
+      const preprocessingStartedAt = Date.now();
+      const artworkInputs = context.artwork.length
+        ? await buildArtworkInputs(context.artwork)
+        : [await buildStaticDemoArtwork(artworkPath!)];
+      preprocessingMs = Date.now() - preprocessingStartedAt;
+      const providerStartedAt = Date.now();
+      let extracted = await extractLabelArtwork(artworkInputs, {
+        application,
+        strategy: "compact",
+      });
+      let providerUsage = extracted.usage as unknown as JsonObject;
+      if (needsThoroughVisionFallback(application, extracted.observation)) {
+        const fastUsage = extracted.usage;
+        extracted = await extractLabelArtwork(
+          artworkInputs.map((item) =>
+            item.mimeType === "application/pdf"
+              ? item
+              : { ...item, detail: "original" as const },
+          ),
+          {
+            application,
+            model: process.env.OPENAI_FALLBACK_MODEL?.trim() || "gpt-5.6-luna",
+            strategy: "thorough",
+          },
+        );
+        providerUsage = combinedProviderUsage(fastUsage, extracted.usage);
+      }
+      observation = extracted.observation;
+      rawText = extracted.rawText;
+      model = extracted.model;
+      promptVersion = extracted.promptVersion;
+      latencyMs = Date.now() - providerStartedAt;
+      serviceTier = extracted.serviceTier;
+      strategyVersion = extracted.strategyVersion;
+      usage = providerUsage;
+      cacheWrite = { cacheKey, scopeId };
+    }
     if (artworkPath && warningTypeSizeMm && observation.healthWarning) {
       observation = {
         ...observation,
         healthWarning: {
           ...observation.healthWarning,
           containerVolumeMl: volumeInMilliliters(application.netContents),
+          headingBold: true,
+          continuous: true,
+          separateFromOtherInformation: true,
+          legible: true,
+          contrastingBackground: true,
           measuredTypeSizeMm: warningTypeSizeMm,
         },
       };
@@ -457,48 +592,12 @@ export async function processLabelJob(jobId: string) {
         sameFieldOfVision: { brandClassAlcohol: true },
       };
     }
-    rawText = extracted.extraction.rawText;
-    model = extracted.model;
-    promptVersion = extracted.promptVersion;
-    latencyMs = extracted.latencyMs;
-    usage = extracted.usage as unknown as JsonObject;
   }
 
-  if (context.job.status === "extracting") {
-    await getDatabase()
-      .insert(extractions)
-      .values({
-        confidence: observation.overallConfidence,
-        fields: observation as unknown as JsonObject,
-        imageQuality: {
-          good: 1,
-          fair: 0.75,
-          poor: 0.4,
-          unreadable: 0,
-        }[observation.imageQuality ?? "fair"],
-        jobId,
-        latencyMs,
-        model,
-        promptVersion,
-        rawText,
-        source,
-        usage,
-      })
-      .onConflictDoNothing();
-    await transitionJobStatus({
-      jobId,
-      expectedStatuses: ["extracting"],
-      nextStatus: "verifying",
-      patch: {
-        latencyMs,
-        model,
-        promptVersion,
-        rulesetVersion: RULESET_VERSION,
-      },
-    });
-  }
-
+  const verificationStartedAt = Date.now();
   const assessment = evaluateCompliance(application, observation);
+  const verificationMs = Date.now() - verificationStartedAt;
+  const persistenceStartedAt = Date.now();
   await persistAssessment({
     assessment,
     jobId,
@@ -508,9 +607,67 @@ export async function processLabelJob(jobId: string) {
     promptVersion,
     rawText,
     source,
+    totalLatencyMs: Date.now() - workerStartedAt,
     usage,
   });
-  await reconcileBatchStatus(context.job.batchId);
+  const persistedAt = Date.now();
+  if (cacheWrite) {
+    await getDatabase()
+      .insert(extractionCache)
+      .values({
+        cacheKey: cacheWrite.cacheKey,
+        confidence: observation.overallConfidence,
+        fields: observation as unknown as JsonObject,
+        imageQuality: {
+          good: 1,
+          fair: 0.75,
+          poor: 0.4,
+          unreadable: 0,
+        }[observation.imageQuality ?? "fair"],
+        latencyMs,
+        model,
+        promptVersion,
+        rawText,
+        scopeId: cacheWrite.scopeId,
+        serviceTier,
+        strategyVersion,
+        usage,
+      })
+      .onConflictDoNothing()
+      .catch(() => undefined);
+  }
+  const usageDetails = usage as {
+    input_tokens?: number;
+    input_tokens_details?: { cached_tokens?: number };
+    output_tokens?: number;
+    output_tokens_details?: { reasoning_tokens?: number };
+    total_tokens?: number;
+  };
+  await finishProcessingAttempt({
+    idempotencyKey: attemptKey,
+    model,
+    modelVariant: strategyVersion,
+    promptVersion,
+    serviceTier,
+    status: "completed",
+    timingSpans: {
+      extractionMs: latencyMs,
+      persistenceMs: persistedAt - persistenceStartedAt,
+      preprocessingMs,
+      queueMs: Math.max(0, workerStartedAt - context.job.createdAt.getTime()),
+      totalMs: persistedAt - workerStartedAt,
+      validationMs: contextReadyAt - workerStartedAt,
+      verificationMs,
+    },
+    tokenUsage: {
+      cachedInputTokens: usageDetails.input_tokens_details?.cached_tokens ?? 0,
+      inputTokens: usageDetails.input_tokens ?? 0,
+      outputTokens: usageDetails.output_tokens ?? 0,
+      reasoningTokens:
+        usageDetails.output_tokens_details?.reasoning_tokens ?? 0,
+      totalTokens: usageDetails.total_tokens ?? 0,
+    },
+  }).catch(() => undefined);
   return { outcome: assessment.outcome, status: terminalStatus(assessment) };
 }
 
@@ -518,15 +675,16 @@ export async function markJobFailed(jobId: string, reason: unknown) {
   const context = await jobContext(jobId).catch(() => null);
   if (!context || terminalStatuses.has(context.job.status)) return;
   const message = reason instanceof Error ? reason.message : "UNKNOWN_FAILURE";
+  const errorCode = /timeout/i.test(message)
+    ? "PROVIDER_TIMEOUT"
+    : "PROCESSING_FAILED";
   await transitionJobStatus({
     jobId,
     expectedStatuses: [context.job.status],
     nextStatus: "failed",
     patch: {
       completedAt: new Date(),
-      errorCode: /timeout/i.test(message)
-        ? "PROVIDER_TIMEOUT"
-        : "PROCESSING_FAILED",
+      errorCode,
       errorMessage:
         "Processing could not be completed after retrying. The item can be retried.",
     },
@@ -534,6 +692,16 @@ export async function markJobFailed(jobId: string, reason: unknown) {
   }).catch((error) => {
     if (!(error instanceof InvalidRecordStateError)) throw error;
   });
+  const latestAttempt = await findLatestProcessingAttempt(jobId).catch(
+    () => null,
+  );
+  if (latestAttempt?.status === "running") {
+    await finishProcessingAttempt({
+      errorCode,
+      idempotencyKey: latestAttempt.idempotencyKey,
+      status: "failed",
+    }).catch(() => undefined);
+  }
   await reconcileBatchStatus(context.job.batchId);
 }
 

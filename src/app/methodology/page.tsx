@@ -277,6 +277,47 @@ export default function MethodologyPage() {
           </p>
         </div>
       </section>
+      <section className="section section-tinted">
+        <div className="shell assessment-grid">
+          <div>
+            <p className="kicker">Five-second latency program</p>
+            <h2>A measured fast path—not a simulated result.</h2>
+            <p>
+              Routine single-image submissions still enter the durable queue. A
+              compact, profile-aware extraction reads only the evidence that can
+              affect the submitted product. If critical evidence is missing,
+              inconsistent, unreadable, or visually difficult, the worker
+              automatically uses the thorough vision path instead of guessing.
+            </p>
+            <p>
+              ProofCheck records queue, preprocessing, provider, verification,
+              persistence, model, strategy, and token provenance for each
+              processing attempt. Sanitized timing appears beside completed
+              review results.
+            </p>
+          </div>
+          <div className="boundary-card">
+            <SparkIcon size={24} />
+            <h3>Cache provenance stays visible</h3>
+            <p>
+              Exact repeats can reuse a versioned, content-addressed extraction
+              while the deterministic rules run again. Custom reuse is isolated
+              to the user session; built-in examples may reuse disclosed
+              global fixtures.
+            </p>
+            <ul>
+              <li>
+                Cache keys include artwork, application facts, model, prompt,
+                schema, and image strategy.
+              </li>
+              <li>Any version change invalidates the previous extraction.</li>
+              <li>
+                First live scans and cache hits are benchmarked separately.
+              </li>
+            </ul>
+          </div>
+        </div>
+      </section>
       <section className="section section-navy">
         <div className="shell batch-method">
           <div>

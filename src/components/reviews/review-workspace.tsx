@@ -23,6 +23,8 @@ type Job = {
   status: UiStatus;
   outcome?: UiStatus;
   confidence?: number | string;
+  latencyMs?: number;
+  latency_ms?: number;
   rulesetVersion?: string;
   ruleset_version?: string;
   createdAt?: string;
@@ -67,6 +69,17 @@ type Extraction = {
   imageQuality?: number | string;
   image_quality?: number | string;
   confidence?: number | string;
+  source?: string;
+  strategy?: string;
+  model?: string;
+  promptVersion?: string;
+  prompt_version?: string;
+  cached?: boolean;
+  cacheHit?: boolean;
+  cache_hit?: boolean;
+  live?: boolean;
+  provenance?: Record<string, unknown>;
+  timing?: Record<string, unknown>;
   latencyMs?: number;
   latency_ms?: number;
 };
@@ -180,19 +193,39 @@ export function ReviewWorkspace({ jobId }: { jobId: string }) {
       controller.abort();
     };
   }, [load]);
+  const shouldPoll = Boolean(
+    data && processingStatuses.includes(String(data.job.status)),
+  );
   useEffect(() => {
-    if (!data || !processingStatuses.includes(String(data.job.status))) return;
+    if (!shouldPoll) return;
+    const startedAt = performance.now();
+    let stopped = false;
     let timer: ReturnType<typeof setTimeout>;
-    const poll = () => {
-      if (document.visibilityState === "visible")
-        void load().finally(() => {
-          timer = setTimeout(poll, 1400);
-        });
-      else timer = setTimeout(poll, 3000);
+    let requestController: AbortController | null = null;
+    const nextDelay = () => {
+      const elapsed = performance.now() - startedAt;
+      if (elapsed < 6_000) return 200;
+      if (elapsed < 15_000) return 500;
+      return 1_400;
     };
-    timer = setTimeout(poll, 1100);
-    return () => clearTimeout(timer);
-  }, [data, load]);
+    const poll = () => {
+      if (stopped) return;
+      if (document.visibilityState !== "visible") {
+        timer = setTimeout(poll, 3_000);
+        return;
+      }
+      requestController = new AbortController();
+      void load(requestController.signal).finally(() => {
+        if (!stopped) timer = setTimeout(poll, nextDelay());
+      });
+    };
+    timer = setTimeout(poll, 200);
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+      requestController?.abort();
+    };
+  }, [load, shouldPoll]);
 
   const submittedRaw =
     data?.application.fields ??
@@ -497,6 +530,7 @@ export function ReviewWorkspace({ jobId }: { jobId: string }) {
               {confidence ? `${confidence}% confidence` : "Extracted evidence"}
             </span>
           </div>
+          <ExtractionProvenance extraction={data.extraction} job={data.job} />
           <div
             className="comparison-table"
             role="table"
@@ -675,6 +709,182 @@ export function ReviewWorkspace({ jobId }: { jobId: string }) {
       </section>
     </div>
   );
+}
+
+function ExtractionProvenance({
+  extraction,
+  job,
+}: {
+  extraction?: Extraction | null;
+  job: Job;
+}) {
+  const details = provenanceDetails(extraction, job);
+  if (!details) return null;
+  return (
+    <aside aria-label="Extraction provenance" className="extraction-provenance">
+      <div className="provenance-summary">
+        <span className={`provenance-mode provenance-${details.mode}`}>
+          {details.mode === "cached"
+            ? "Cached"
+            : details.mode === "live"
+              ? "Live"
+              : "Extracted"}
+        </span>
+        <div>
+          <strong>{details.sourceLabel}</strong>
+          <small>{details.strategyLabel}</small>
+        </div>
+      </div>
+      <dl>
+        {details.model ? (
+          <div>
+            <dt>Model / fixture</dt>
+            <dd>{details.model}</dd>
+          </div>
+        ) : null}
+        {details.extractionMs != null ? (
+          <div>
+            <dt>Extraction time</dt>
+            <dd>{formatDuration(details.extractionMs)}</dd>
+          </div>
+        ) : null}
+        {details.totalMs != null && details.totalMs !== details.extractionMs ? (
+          <div>
+            <dt>Total processing</dt>
+            <dd>{formatDuration(details.totalMs)}</dd>
+          </div>
+        ) : null}
+      </dl>
+    </aside>
+  );
+}
+
+function provenanceDetails(
+  extraction: Extraction | null | undefined,
+  job: Job,
+) {
+  if (!extraction) return null;
+  const provenance = extraction.provenance ?? {};
+  const timing = extraction.timing ?? {};
+  const source = knownValue(extraction.source ?? provenance.source, [
+    "openai",
+    "cached_demo",
+    "cached_extraction",
+  ]);
+  const cached =
+    extraction.cached === true ||
+    extraction.cacheHit === true ||
+    extraction.cache_hit === true ||
+    provenance.cached === true ||
+    provenance.cacheHit === true;
+  const live = extraction.live === true || provenance.live === true;
+  const mode =
+    source === "cached_demo" || source === "cached_extraction" || cached
+      ? "cached"
+      : source === "openai" || live
+        ? "live"
+        : "unknown";
+  const strategy = knownValue(extraction.strategy ?? provenance.strategy, [
+    "benchmark_replay",
+    "cached_demo",
+    "validated_fixture",
+    "openai_vision",
+    "vision",
+    "multimodal",
+    "native_text",
+    "pdf_text",
+    "ocr",
+    "compact-fast.2026-07-31.1",
+    "compact-fast.2026-07-31.2",
+    "compact-fast.2026-07-31.3",
+    "thorough.2026-07-31.1",
+  ]);
+  const strategyLabel =
+    strategy && strategyLabels[strategy]
+      ? strategyLabels[strategy]
+      : mode === "cached"
+        ? "Validated fixture replay"
+        : mode === "live"
+          ? "Vision field extraction"
+          : "Structured field extraction";
+  const extractionMs = safeDuration(
+    extraction.latencyMs ??
+      extraction.latency_ms ??
+      timing.extractionMs ??
+      timing.extraction_ms,
+  );
+  const totalMs = safeDuration(
+    job.latencyMs ?? job.latency_ms ?? timing.totalMs ?? timing.total_ms,
+  );
+  const model = safeIdentifier(extraction.model);
+  if (
+    !source &&
+    !cached &&
+    !live &&
+    !strategy &&
+    !model &&
+    extractionMs == null &&
+    totalMs == null
+  )
+    return null;
+  return {
+    extractionMs,
+    mode,
+    model,
+    sourceLabel:
+      mode === "cached"
+        ? source === "cached_extraction"
+          ? "Cached prior live extraction"
+          : "Validated demo extraction"
+        : mode === "live"
+          ? "Live OpenAI vision extraction"
+          : "Structured label extraction",
+    strategyLabel,
+    totalMs,
+  };
+}
+
+const strategyLabels: Record<string, string> = {
+  benchmark_replay: "Benchmark fixture replay",
+  cached_demo: "Validated fixture replay",
+  validated_fixture: "Validated fixture replay",
+  openai_vision: "Vision field extraction",
+  vision: "Vision field extraction",
+  multimodal: "Multimodal field extraction",
+  native_text: "Native document text extraction",
+  pdf_text: "PDF text and page extraction",
+  ocr: "Optical character recognition",
+  "compact-fast.2026-07-31.1": "Compact profile-aware vision extraction",
+  "compact-fast.2026-07-31.2": "Compact profile-aware vision extraction",
+  "compact-fast.2026-07-31.3": "Compact profile-aware vision extraction",
+  "thorough.2026-07-31.1": "Thorough vision fallback",
+};
+
+function knownValue(value: unknown, allowed: string[]) {
+  return typeof value === "string" && allowed.includes(value)
+    ? value
+    : undefined;
+}
+
+function safeIdentifier(value: unknown) {
+  return typeof value === "string" &&
+    /^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,79}$/.test(value)
+    ? value
+    : undefined;
+}
+
+function safeDuration(value: unknown) {
+  const number = Number(value);
+  return Number.isFinite(number) && number >= 0 && number <= 86_400_000
+    ? Math.round(number)
+    : undefined;
+}
+
+function formatDuration(milliseconds: number) {
+  if (milliseconds < 1) return "< 1 ms";
+  if (milliseconds < 1_000) return `${milliseconds} ms`;
+  if (milliseconds < 10_000) return `${(milliseconds / 1_000).toFixed(1)} sec`;
+  return `${Math.round(milliseconds / 1_000)} sec`;
 }
 
 function FindingCard({ finding }: { finding: Finding }) {

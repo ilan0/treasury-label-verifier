@@ -1,4 +1,5 @@
 import { eq } from "drizzle-orm";
+import { after } from "next/server";
 
 import { getDatabase } from "@/db/client";
 import { queueOutbox } from "@/db/schema";
@@ -59,8 +60,13 @@ export async function POST(
       })
       .where(eq(queueOutbox.jobId, jobId));
     await reconcileBatchStatus(record.batch.id);
-    const queue = await dispatchPendingOutbox({ jobIds: [jobId], limit: 1 });
-    return acceptedResponse({ jobId, status: "queued", queue });
+    const queueDelivery = dispatchPendingOutbox({ jobIds: [jobId], limit: 1 });
+    after(() => queueDelivery);
+    return acceptedResponse({
+      jobId,
+      status: "queued",
+      queue: { delivered: 0, pending: 1 },
+    });
   } catch (reason) {
     return errorResponse(reason, request);
   }

@@ -144,7 +144,7 @@ export const demoScenarios: Record<
         confidence: 0.99,
         panel: "back",
         headingAllCaps: false,
-        headingBold: false,
+        headingBold: true,
         continuous: true,
         separateFromOtherInformation: true,
         legible: true,

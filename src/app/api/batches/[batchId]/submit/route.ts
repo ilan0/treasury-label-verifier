@@ -82,7 +82,8 @@ export async function POST(
           .where(eq(labelJobs.batchId, batchId))
       ).map((item) => item.id);
     }
-    after(() => dispatchPendingOutbox({ jobIds }));
+    const queueDelivery = dispatchPendingOutbox({ jobIds });
+    after(() => queueDelivery);
     const queue = { delivered: 0, pending: jobIds.length };
     return acceptedResponse({
       batchId,

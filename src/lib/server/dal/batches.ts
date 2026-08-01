@@ -83,6 +83,128 @@ export async function createBatchDraft(input: {
   });
 }
 
+/**
+ * Creates a confirmed demo and its queued jobs atomically. Demo cards are a
+ * primary user entry point, so they should not pay for a draft
+ * transaction, a submit transaction, and a post-submit application lookup.
+ */
+export async function createAndSubmitDemoBatch(input: {
+  applications: DraftApplicationInput[];
+  idempotencyKey?: string;
+  mode: "demo" | "benchmark";
+  name: string;
+  quota?: {
+    globalLimit: number;
+    ipHash: string;
+    ipLimit: number;
+    kind: string;
+    sessionLimit: number;
+    units: number;
+  };
+  rulesetVersion: string;
+  sessionId: string;
+}) {
+  if (input.applications.length < 1 || input.applications.length > 300) {
+    throw new RangeError(
+      "A batch must contain between 1 and 300 applications.",
+    );
+  }
+  return getDatabase().transaction(async (transaction) => {
+    if (input.idempotencyKey) {
+      const existing = await transaction.execute(sql`
+        SELECT batch.id, application.id AS application_id, job.id AS job_id
+        FROM batches AS batch
+        INNER JOIN applications AS application ON application.batch_id = batch.id
+        LEFT JOIN label_jobs AS job ON job.application_id = application.id
+        WHERE batch.session_id = ${input.sessionId}
+          AND batch.idempotency_key = ${input.idempotencyKey}
+        ORDER BY application.created_at
+      `);
+      if (existing.length) {
+        return {
+          alreadySubmitted: true,
+          applicationIds: existing.map((row) => row.application_id as string),
+          batchId: existing[0]!.id as string,
+          jobIds: existing
+            .map((row) => row.job_id as string | null)
+            .filter((value): value is string => Boolean(value)),
+        };
+      }
+    }
+
+    if (input.quota) {
+      const quota = await transaction.execute(sql`
+        SELECT proofcheck_consume_usage_quota(
+          ${input.sessionId}, ${input.quota.ipHash}, ${input.quota.kind},
+          ${input.quota.units}, ${input.quota.sessionLimit},
+          ${input.quota.ipLimit}, ${input.quota.globalLimit}
+        ) AS allowed
+      `);
+      if (quota[0]?.allowed !== true) throw new Error("QUOTA_EXCEEDED");
+    }
+
+    const [batch] = await transaction
+      .insert(batches)
+      .values({
+        idempotencyKey: input.idempotencyKey,
+        mode: input.mode,
+        name: input.name,
+        sessionId: input.sessionId,
+        status: "queued",
+        totalCount: input.applications.length,
+      })
+      .returning({ id: batches.id });
+    const applicationRows = await transaction
+      .insert(applications)
+      .values(
+        input.applications.map((application) => ({
+          batchId: batch.id,
+          confirmed: true,
+          externalId: application.externalId,
+          originType: application.originType ?? "unknown",
+          regulatoryProfile: application.regulatoryProfile,
+          submittedFields: application.submittedFields,
+        })),
+      )
+      .returning({ id: applications.id });
+    const jobRows = await transaction
+      .insert(labelJobs)
+      .values(
+        applicationRows.map((application) => ({
+          applicationId: application.id,
+          batchId: batch.id,
+          rulesetVersion: input.rulesetVersion,
+          status: "queued" as const,
+        })),
+      )
+      .returning({ id: labelJobs.id });
+    await transaction.insert(statusEvents).values(
+      jobRows.map((job) => ({
+        details: { source: "demo_submission" },
+        jobId: job.id,
+        toStatus: "queued" as const,
+      })),
+    );
+    await transaction.insert(queueOutbox).values(
+      jobRows.map((job) => ({
+        eventId: `label-verification-${job.id}`,
+        eventName:
+          input.mode === "benchmark"
+            ? "label/verification.bulk"
+            : "label/verification.interactive",
+        jobId: job.id,
+        payload: { jobId: job.id },
+      })),
+    );
+    return {
+      alreadySubmitted: false,
+      applicationIds: applicationRows.map((row) => row.id),
+      batchId: batch.id,
+      jobIds: jobRows.map((row) => row.id),
+    };
+  });
+}
+
 export async function findBatchForSession(batchId: string, sessionId: string) {
   const [batch] = await getDatabase()
     .select()
@@ -125,12 +247,13 @@ export async function submitBatchForSession(input: {
   const db = getDatabase();
   return db.transaction(async (transaction) => {
     const locked = await transaction.execute(sql`
-      SELECT id, status
+      SELECT id, status, mode
       FROM batches
       WHERE id = ${input.batchId} AND session_id = ${input.sessionId}
       FOR UPDATE
     `);
-    const batch = locked[0] as { id: string; status: string } | undefined;
+    const batch = locked[0] as
+      { id: string; mode: BatchMode; status: string } | undefined;
     if (!batch) throw new RecordNotFoundError();
 
     if (batch.status !== "draft") {
@@ -207,7 +330,10 @@ export async function submitBatchForSession(input: {
     await transaction.insert(queueOutbox).values(
       createdJobs.map((job) => ({
         eventId: `label-verification-${job.id}`,
-        eventName: "label/verification.requested",
+        eventName:
+          batch.mode === "batch"
+            ? "label/verification.bulk"
+            : "label/verification.interactive",
         jobId: job.id,
         payload: { jobId: job.id },
       })),

@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 
 import { getDatabase } from "@/db/client";
 import {
@@ -9,6 +9,7 @@ import {
   batches,
   extractions,
   labelJobs,
+  processingAttempts,
   reviewDecisions,
   ruleResults,
   statusEvents,
@@ -59,7 +60,7 @@ export async function getJobResultsForSession(
   const record = await findJobForSession(jobId, sessionId);
   if (!record) return null;
   const db = getDatabase();
-  const [extractionRows, resultRows, decisionRows, eventRows] =
+  const [extractionRows, resultRows, decisionRows, eventRows, attemptRows] =
     await Promise.all([
       db.select().from(extractions).where(eq(extractions.jobId, jobId)),
       db
@@ -77,12 +78,19 @@ export async function getJobResultsForSession(
         .from(statusEvents)
         .where(eq(statusEvents.jobId, jobId))
         .orderBy(asc(statusEvents.createdAt)),
+      db
+        .select()
+        .from(processingAttempts)
+        .where(eq(processingAttempts.jobId, jobId))
+        .orderBy(desc(processingAttempts.attemptNumber))
+        .limit(1),
     ]);
   return {
     ...record,
     decisions: decisionRows,
     events: eventRows,
     extraction: extractionRows[0] ?? null,
+    latestAttempt: attemptRows[0] ?? null,
     results: resultRows,
   };
 }
@@ -133,6 +141,77 @@ export async function transitionJobStatus(input: {
   });
 }
 
+/**
+ * Advances a processable job to extraction in one short transaction. The
+ * timeline still contains both validating and extracting, but workers no
+ * longer need a context reload between each brief state.
+ */
+export async function beginJobExtraction(jobId: string) {
+  return getDatabase().transaction(async (transaction) => {
+    const rows = await transaction.execute(sql`
+      SELECT status, attempt_count, started_at
+      FROM label_jobs
+      WHERE id = ${jobId}
+      FOR UPDATE
+    `);
+    const current = rows[0] as
+      | { attempt_count: number; started_at: Date | null; status: JobStatus }
+      | undefined;
+    if (!current) throw new RecordNotFoundError();
+    if (
+      [
+        "completed",
+        "review_required",
+        "correction_needed",
+        "rejected",
+        "failed",
+        "cancelled",
+        "expired",
+      ].includes(current.status)
+    ) {
+      return { replay: true, status: current.status };
+    }
+    if (current.status === "verifying" || current.status === "extracting") {
+      return {
+        replay: current.status === "extracting",
+        status: current.status,
+      };
+    }
+    if (current.status !== "queued" && current.status !== "validating") {
+      throw new InvalidRecordStateError();
+    }
+
+    const events: Array<typeof statusEvents.$inferInsert> = [];
+    if (current.status === "queued") {
+      events.push({
+        details: { source: "worker_fast_transition" },
+        fromStatus: "queued",
+        jobId,
+        toStatus: "validating",
+      });
+    }
+    events.push({
+      details: { source: "worker_fast_transition" },
+      fromStatus: "validating",
+      jobId,
+      toStatus: "extracting",
+    });
+    await transaction.insert(statusEvents).values(events);
+    await transaction
+      .update(labelJobs)
+      .set({
+        attemptCount:
+          current.status === "queued"
+            ? current.attempt_count + 1
+            : current.attempt_count,
+        startedAt: current.started_at ?? new Date(),
+        status: "extracting",
+      })
+      .where(eq(labelJobs.id, jobId));
+    return { replay: false, status: "extracting" as const };
+  });
+}
+
 export async function persistJobEvaluation(input: {
   extraction: {
     confidence?: number;
@@ -142,7 +221,7 @@ export async function persistJobEvaluation(input: {
     model: string;
     promptVersion: string;
     rawText?: string;
-    source?: "openai" | "cached_demo";
+    source?: "openai" | "cached_demo" | "cached_extraction";
     usage?: JsonObject;
   };
   job: {
@@ -168,9 +247,10 @@ export async function persistJobEvaluation(input: {
 }) {
   return getDatabase().transaction(async (transaction) => {
     const locked = await transaction.execute(sql`
-      SELECT status FROM label_jobs WHERE id = ${input.jobId} FOR UPDATE
+      SELECT status, batch_id FROM label_jobs WHERE id = ${input.jobId} FOR UPDATE
     `);
-    const current = locked[0] as { status: string } | undefined;
+    const current = locked[0] as
+      { batch_id: string; status: string } | undefined;
     if (!current) throw new RecordNotFoundError();
     if (
       ["completed", "review_required", "correction_needed"].includes(
@@ -179,7 +259,9 @@ export async function persistJobEvaluation(input: {
     ) {
       return { alreadyPersisted: true };
     }
-    if (current.status !== "verifying") throw new InvalidRecordStateError();
+    if (current.status !== "extracting" && current.status !== "verifying") {
+      throw new InvalidRecordStateError();
+    }
 
     await transaction
       .insert(extractions)
@@ -243,11 +325,59 @@ export async function persistJobEvaluation(input: {
         status: input.job.terminalStatus,
       })
       .where(eq(labelJobs.id, input.jobId));
-    await transaction.insert(statusEvents).values({
-      fromStatus: "verifying",
-      jobId: input.jobId,
-      toStatus: input.job.terminalStatus,
-    });
+    await transaction.insert(statusEvents).values([
+      ...(current.status === "extracting"
+        ? [
+            {
+              details: { source: "worker_fast_transition" },
+              fromStatus: "extracting" as const,
+              jobId: input.jobId,
+              toStatus: "verifying" as const,
+            },
+          ]
+        : []),
+      {
+        fromStatus: "verifying" as const,
+        jobId: input.jobId,
+        toStatus: input.job.terminalStatus,
+      },
+    ]);
+    await transaction.execute(sql`
+      UPDATE batches AS batch
+      SET status = CASE
+        WHEN batch.status = 'cancelled' THEN 'cancelled'::batch_status
+        WHEN EXISTS (
+          SELECT 1 FROM label_jobs job
+          WHERE job.batch_id = batch.id
+            AND job.status NOT IN (
+              'completed', 'review_required', 'correction_needed', 'rejected',
+              'failed', 'cancelled', 'expired'
+            )
+        ) THEN CASE
+          WHEN EXISTS (
+            SELECT 1 FROM label_jobs job
+            WHERE job.batch_id = batch.id
+              AND job.status IN (
+                'completed', 'review_required', 'correction_needed', 'rejected',
+                'failed', 'cancelled', 'expired'
+              )
+          ) THEN 'processing'::batch_status
+          ELSE 'queued'::batch_status
+        END
+        WHEN NOT EXISTS (
+          SELECT 1 FROM label_jobs job
+          WHERE job.batch_id = batch.id
+            AND job.status NOT IN ('failed', 'rejected', 'expired')
+        ) THEN 'failed'::batch_status
+        WHEN EXISTS (
+          SELECT 1 FROM label_jobs job
+          WHERE job.batch_id = batch.id
+            AND job.status IN ('failed', 'rejected', 'cancelled', 'expired')
+        ) THEN 'partial'::batch_status
+        ELSE 'completed'::batch_status
+      END
+      WHERE batch.id = ${current.batch_id}
+    `);
     return { alreadyPersisted: false };
   });
 }

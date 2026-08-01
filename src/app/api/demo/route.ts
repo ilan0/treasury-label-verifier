@@ -1,8 +1,4 @@
-import {
-  createBatchDraft,
-  listApplicationsForBatchSession,
-  submitBatchForSession,
-} from "@/lib/server/dal";
+import { createAndSubmitDemoBatch } from "@/lib/server/dal";
 import { acceptedResponse, errorResponse, jsonBody } from "@/lib/server/http";
 import {
   assertSameOriginMutation,
@@ -41,7 +37,7 @@ export async function POST(request: Request) {
       : [getDemoScenario(scenarioId)].filter(Boolean);
     const idempotencyKey =
       request.headers.get("idempotency-key")?.slice(0, 200) || undefined;
-    const batch = await createBatchDraft({
+    const submitted = await createAndSubmitDemoBatch({
       sessionId: session.recordId,
       idempotencyKey,
       mode: isBenchmark ? "benchmark" : "demo",
@@ -57,7 +53,10 @@ export async function POST(request: Request) {
         confirmed: true,
         submittedFields: {
           application: scenario!.application,
-          artworkPath: scenario!.artworkPath,
+          artworkPath:
+            body.performanceVariant && scenario!.id === "compliant-bourbon"
+              ? `/demo/performance/old-tom-${String(body.performanceVariant).padStart(2, "0")}.jpg`
+              : scenario!.artworkPath,
           ...(isBenchmark ? { demoObservation: scenario!.observation } : {}),
           ...(!isBenchmark && scenario!.warningTypeSizeMm
             ? { warningTypeSizeMm: scenario!.warningTypeSizeMm }
@@ -65,9 +64,6 @@ export async function POST(request: Request) {
           demoScenarioId: scenario!.id,
         },
       })),
-    });
-    const submitted = await submitBatchForSession({
-      batchId: batch.id,
       quota: isBenchmark
         ? undefined
         : {
@@ -81,32 +77,19 @@ export async function POST(request: Request) {
             units: 1,
           },
       rulesetVersion: RULESET_VERSION,
-      sessionId: session.recordId,
     });
-    let jobIds = submitted.jobIds;
-    if (submitted.alreadySubmitted) {
-      const { getDatabase } = await import("@/db/client");
-      const { labelJobs } = await import("@/db/schema");
-      const { eq } = await import("drizzle-orm");
-      jobIds = (
-        await getDatabase()
-          .select({ id: labelJobs.id })
-          .from(labelJobs)
-          .where(eq(labelJobs.batchId, batch.id))
-      ).map((item) => item.id);
-    }
-    after(() => dispatchPendingOutbox({ jobIds }));
+    const jobIds = submitted.jobIds;
+    const queueDelivery = dispatchPendingOutbox({ jobIds });
+    after(() => queueDelivery);
     const queue = { delivered: 0, pending: jobIds.length };
-    const applications = await listApplicationsForBatchSession(
-      batch.id,
-      session.recordId,
-    );
     return acceptedResponse({
-      batchId: batch.id,
+      batchId: submitted.batchId,
       jobId: jobIds.length === 1 ? jobIds[0] : undefined,
       kind: isBenchmark ? "benchmark" : "single",
       applicationId:
-        applications.length === 1 ? applications[0].application.id : undefined,
+        submitted.applicationIds.length === 1
+          ? submitted.applicationIds[0]
+          : undefined,
       queue,
     });
   } catch (reason) {

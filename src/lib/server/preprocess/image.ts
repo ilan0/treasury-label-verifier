@@ -17,16 +17,14 @@ export interface NormalizedImage {
 export async function normalizeArtwork(
   buffer: Buffer,
 ): Promise<NormalizedImage> {
-  const original = await sharp(buffer, {
+  const image = sharp(buffer, {
     failOn: "warning",
     limitInputPixels: MAX_PIXELS,
-  }).metadata();
+  });
+  const original = await image.metadata();
   if (!original.width || !original.height) throw new Error("INVALID_IMAGE");
 
-  const output = sharp(buffer, {
-    failOn: "warning",
-    limitInputPixels: MAX_PIXELS,
-  })
+  const output = image
     .rotate()
     .flatten({ background: "#ffffff" })
     .resize({
@@ -35,7 +33,10 @@ export async function normalizeArtwork(
       fit: "inside",
       withoutEnlargement: true,
     })
-    .jpeg({ quality: 88, mozjpeg: true });
+    // libjpeg is roughly an order of magnitude faster than mozjpeg for these
+    // short-lived verification derivatives. The modest byte increase is less
+    // expensive than adding tens of milliseconds to every worker invocation.
+    .jpeg({ quality: 88, mozjpeg: false });
   const { data, info } = await output.toBuffer({ resolveWithObject: true });
 
   return {

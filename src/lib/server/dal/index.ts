@@ -4,4 +4,6 @@ export * from "@/lib/server/dal/batches";
 export * from "@/lib/server/dal/errors";
 export * from "@/lib/server/dal/jobs";
 export * from "@/lib/server/dal/outbox";
+export * from "@/lib/server/dal/processing-attempts";
+export * from "@/lib/server/dal/processing-attempt-values";
 export * from "@/lib/server/dal/quota";

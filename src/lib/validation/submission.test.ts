@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  demoRequestSchema,
   manualApplicationData,
   parseAbv,
   parseManifest,
@@ -15,6 +16,16 @@ function row(index: number, filename = `label-${index}.png`) {
 }
 
 describe("submission value parsing", () => {
+  it("accepts only the twenty generated unseen-image benchmark variants", () => {
+    expect(
+      demoRequestSchema.parse({
+        scenarioId: "compliant-bourbon",
+        performanceVariant: 20,
+      }).performanceVariant,
+    ).toBe(20);
+    expect(() => demoRequestSchema.parse({ performanceVariant: 21 })).toThrow();
+  });
+
   it("parses alcohol percentages and rejects values outside the legal range", () => {
     expect(parseAbv("45% Alc./Vol.")).toBe(45);
     expect(parseAbv("")).toBeUndefined();
