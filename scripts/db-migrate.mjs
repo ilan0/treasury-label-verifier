@@ -23,6 +23,23 @@ const migrationFiles = (await readdir(migrationDirectory))
   .filter((file) => file.endsWith(".sql"))
   .sort();
 
+// During the latency-program rollout, 0001 was applied to the prototype
+// database before its final whitespace-only repository normalization. Keep the
+// reconciliation exact and one-directional: every other checksum mismatch
+// remains a hard failure, while this known pre-release checksum is advanced to
+// the committed checksum once.
+const knownChecksumReconciliations = new Map([
+  [
+    "0001_processing_attempts.sql",
+    new Map([
+      [
+        "b9de0f062ad7c66aeec31332d8cf34eaf5de7f085dfbbcfe343ca0b3de0e9637",
+        "d148f42cc7a0feca0d60d2dacfae5dc76d6dd9799efc2e7a5ce4149e347dec62",
+      ],
+    ]),
+  ],
+]);
+
 const sql = postgres(databaseUrl, {
   max: 1,
   prepare: false,
@@ -69,7 +86,17 @@ try {
 
       if (existing) {
         if (existing.checksum !== checksum) {
-          throw new Error(`Applied migration ${name} has changed.`);
+          const expectedCurrent = knownChecksumReconciliations
+            .get(name)
+            ?.get(existing.checksum);
+          if (expectedCurrent !== checksum) {
+            throw new Error(`Applied migration ${name} has changed.`);
+          }
+          await transaction`
+            UPDATE proofcheck_migrations
+            SET checksum = ${checksum}
+            WHERE name = ${name} AND checksum = ${existing.checksum}
+          `;
         }
         return;
       }

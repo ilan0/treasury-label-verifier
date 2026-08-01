@@ -114,6 +114,7 @@ The primary five-second median and eight-second p95 gates pass. The free Inngest
 - Compact numeric evidence dropping exact ABV source wording and causing deterministic format false failures.
 - Interactive queue serialization behind Inngest durable-step finalization; removed while bulk remains capped at four.
 - A direct-send queue experiment that worsened p95; removed rather than left as dormant complexity.
+- Pre-release migration `0001` checksum drift after repository whitespace normalization; repaired with an exact known-checksum reconciliation while preserving hard failure for every unknown change.
 
 Every substantive defect above has focused regression coverage or an integration/browser reproduction recorded in `PLAN.md`.
 

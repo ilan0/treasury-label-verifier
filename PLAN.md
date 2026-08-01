@@ -53,6 +53,7 @@ Defects discovered during implementation and QA are added here and closed only a
 - [x] Compact extraction could not prove subjective warning presentation from an unscaled custom photograph. Those facts are deliberately omitted and route to review; only verified built-in artwork receives trusted physical/presentation metadata.
 - [x] Interactive `concurrency: 1` serialized a new run behind Inngest's post-terminal durable-step finalization, producing alternating multi-second cache results. Removed only interactive serialization while retaining bulk concurrency four; repeat p95 is now 984 ms.
 - [x] Direct post-commit event delivery without first claiming the outbox was tested as a queue optimization and regressed repeat p95 to 2,649 ms. Removed the losing experiment and retained the proven targeted transactional outbox path.
+- [x] Fresh-clone migration verification found that telemetry migration `0001` had been applied before its final whitespace-only repository normalization. Added an exact, one-directional checksum reconciliation for that known pre-release pair; every unknown migration drift remains a hard failure.
 
 ## Measured performance
 
