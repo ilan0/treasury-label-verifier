@@ -25,7 +25,7 @@ try {
     );
   }
 
-  // User examples are immutable, version-controlled fixtures. `/api/demo`
+  // Built-in examples are immutable, version-controlled fixtures. `/api/demo`
   // materializes them inside the requesting user's isolated session.
   console.log(
     "Demo fixtures are bundled and ready for session-scoped materialization.",

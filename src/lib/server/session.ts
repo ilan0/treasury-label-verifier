@@ -22,7 +22,7 @@ export type UserSession = {
 
 export class SessionRequiredError extends Error {
   constructor() {
-    super("An user session is required.");
+    super("A user session is required.");
     this.name = "SessionRequiredError";
   }
 }

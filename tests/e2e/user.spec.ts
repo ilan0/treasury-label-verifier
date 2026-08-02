@@ -13,7 +13,7 @@ function captureBrowserFailures(page: Page) {
   return () => expect(failures, failures.join("\n")).toEqual([]);
 }
 
-test("an user can understand and navigate the product immediately", async ({
+test("a user can understand and navigate the product immediately", async ({
   page,
 }) => {
   const assertNoFailures = captureBrowserFailures(page);

@@ -171,7 +171,7 @@ export default function Home() {
         <div className="section-heading">
           <div>
             <p className="kicker">Try it now</p>
-            <h2 id="examples-heading">Purpose-built user examples</h2>
+            <h2 id="examples-heading">Ready-to-run examples</h2>
             <p>
               Each scenario highlights a real product decision or compliance
               edge case.

@@ -531,7 +531,7 @@ function evaluateProfileRule(
           "PHENYLKETONURICS: CONTAINS PHENYLALANINE.",
       );
     default:
-      throw new Error(`Rule ${rule.id} does not have an user.`);
+      throw new Error(`Rule ${rule.id} does not have an implementation.`);
   }
 }
 

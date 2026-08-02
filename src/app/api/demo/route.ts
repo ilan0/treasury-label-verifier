@@ -41,7 +41,9 @@ export async function POST(request: Request) {
       sessionId: session.recordId,
       idempotencyKey,
       mode: isBenchmark ? "benchmark" : "demo",
-      name: isBenchmark ? "250-item user benchmark" : scenarios[0]!.title,
+      name: isBenchmark
+        ? "250-item demonstration benchmark"
+        : scenarios[0]!.title,
       applications: scenarios.map((scenario, index) => ({
         externalId: isBenchmark
           ? `BENCH-${String(index + 1).padStart(3, "0")}`
