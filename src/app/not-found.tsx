@@ -7,8 +7,7 @@ export default function NotFound() {
     <div className="shell page-shell narrow-state">
       <InlineAlert title="Record not found" tone="warning">
         <p>
-          This link is invalid, belongs to another user session, or has
-          expired.
+          This link is invalid, belongs to another user session, or has expired.
         </p>
       </InlineAlert>
       <Link className="button button-primary" href="/">

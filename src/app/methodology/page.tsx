@@ -302,8 +302,8 @@ export default function MethodologyPage() {
             <p>
               Exact repeats can reuse a versioned, content-addressed extraction
               while the deterministic rules run again. Custom reuse is isolated
-              to the user session; built-in examples may reuse disclosed
-              global fixtures.
+              to the user session; built-in examples may reuse disclosed global
+              fixtures.
             </p>
             <ul>
               <li>
